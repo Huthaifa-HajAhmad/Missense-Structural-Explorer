@@ -9,6 +9,7 @@ import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { OrdinalScale } from './ContextCharts';
 import { InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { assertionKey } from '../../shared/contextWorkspace';
+import { formatClinicalDate } from './population/populationFormat';
 
 const DOSAGE_LEVELS = ['0', '1', '2', '3'] as const;
 const GRADED_LABELS = GRADED_VALIDITY.map(c => c.label);
@@ -31,7 +32,7 @@ function AssertionLine({ a, frame, selected }: { a: AssertionRow; frame?: string
     <td>{(() => { const href = safeExternalHref(a.reportUrl); return href
       ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">Report<span className="ctx-sr-only"> from {a.submitter} (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a>
       : <span className="gd-caption">Not linked</span>; })()}</td>
-    <td className="gd-mono">{a.evaluatedAt ?? <span className="gd-caption">Not reported</span>}</td>
+    <td className="gd-mono">{formatClinicalDate(a.evaluatedAt) ?? <span className="gd-caption">Not reported</span>}</td>
   </tr>;
 }
 function DosageLine({ r, evaluatedAt, selected }: { r: DosageReading; evaluatedAt: string | null; selected: boolean }) {
@@ -44,7 +45,7 @@ function DosageLine({ r, evaluatedAt, selected }: { r: DosageReading; evaluatedA
     <td>{r.disease
       ? <>{r.disease}{r.diseaseId && <span className="gd-caption gd-block gd-mono">{r.diseaseId}</span>}<span className="gd-caption gd-block">{DOSAGE_SCOPE_NOTE[r.scope]}</span>{r.history && <span className="gd-caption gd-block">{r.history}</span>}</>
       : <span className="gd-caption">{r.code === 0 ? 'Nothing curated; not a finding of tolerance.' : 'No disease curated for this score.'}</span>}</td>
-    <td className="gd-mono">{evaluatedAt ?? <span className="gd-caption">Not reported</span>}</td>
+    <td className="gd-mono">{formatClinicalDate(evaluatedAt) ?? <span className="gd-caption">Not reported</span>}</td>
   </tr>;
 }
 
@@ -78,7 +79,7 @@ export function GeneDiseaseReadings({ model, onRetryDosage, section }: { model: 
     </div>
     <p className="gd-foot">
       <span>{section !== 'dosage' && 'Levels remain as submitted; no consensus score is calculated. '}
-        {section !== 'validity' && <>Dosage is whole-gene copy-number evidence{dosage.evaluatedAt ? `, last evaluated ${dosage.evaluatedAt}` : ''}. It does not establish the effect of this missense variant. No ACMG criterion is added.</>}</span>
+        {section !== 'validity' && <>Dosage is whole-gene copy-number evidence{formatClinicalDate(dosage.evaluatedAt) ? `, last evaluated ${formatClinicalDate(dosage.evaluatedAt)}` : ''}. It does not establish the effect of this missense variant. No ACMG criterion is added.</>}</span>
       {(() => { const href = section !== 'validity' && safeExternalHref(dosage.reportUrl); return href
         ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">ClinGen curation<span className="ctx-sr-only"> (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a>
         : null; })()}

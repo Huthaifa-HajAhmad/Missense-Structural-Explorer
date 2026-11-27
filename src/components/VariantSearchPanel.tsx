@@ -33,6 +33,9 @@ import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/V
 import { getWorkflowStageStatus, isOnDemandView, summarizeRunStages } from "../shared/workflowStatus";
 import { evidenceTabsLoading } from "../shared/evidenceTabProgress";
 import { landscapeKey } from "../shared/landscapeEvidence";
+import { expertPm1Specified, expertPm1StatusOf, type HotspotContext } from "../shared/hotspotEvidence";
+import { hotspotsSlot } from "../shared/evidenceKeys";
+import type { ContextLoad } from "../stores/slices/evidenceContextSlice";
 import {
   needsNotationResolution,
   classifyNotation,
@@ -558,6 +561,9 @@ function VariantSearchPanel({
   const result = analysisState.result;
   // Same run-backed tabs as the sidebar's Evidence row, so the rail and the row cannot disagree.
   const loadingEvidenceTabs = evidenceTabsLoading(EVIDENCE_SUB_ITEMS, isBiophysicalLoading, result);
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts?.[hotspotsSlot(result?.metadata?.gene || s.gene || null, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
+  const expertPm1 = Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec));
+  const expertPm1Status = expertPm1StatusOf(hotspotLoad);
 
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: (typeof WORKFLOW_STAGES)[number]["key"]) => {
@@ -577,7 +583,9 @@ function VariantSearchPanel({
       isNarrativeLoading,
       hasStructureCoordinates: Boolean(loadedPdb),
       landscapeOverviewStatus: overviewStatus,
-      evidenceTabsLoading: loadingEvidenceTabs
+      evidenceTabsLoading: loadingEvidenceTabs,
+      expertPm1Specified: expertPm1,
+      expertPm1Status,
     });
     /**
      * Display labels for the workflow states. "In Progress" is avoided because it implies waiting

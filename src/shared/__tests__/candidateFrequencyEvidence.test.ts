@@ -136,7 +136,7 @@ describe("population comparison chart for several candidate alleles", () => {
     const model = buildPopulationComparison(evidence([found("A", 0.000003), absent("C")]));
     const rows = model.rows.filter(r => r.group === "gnomad-candidate");
     expect(rows.map(r => [r.name, r.valueText, r.value === null])).toEqual([
-      ["gnomAD G>A · 4-1804392-G-A", "3.00e-4%", false],
+      ["gnomAD G>A · 4-1804392-G-A", "3.00e-6", false],
       ["gnomAD G>C · 4-1804392-G-C", "No variant record returned", true],
     ]);
     expect(rows[0].facts).toContainEqual({ label: "Supports", value: "PM2" });
@@ -155,7 +155,8 @@ describe("population comparison chart for several candidate alleles", () => {
 
     const model = buildPopulationComparison(fe);
     const rows = model.rows.filter(r => r.group === "gnomad-candidate");
-    expect(rows[0].facts).toContainEqual({ label: "FAF95 (BA1/BS1 input)", value: "2%" });
+    // Finding A1: BS1 is not applied app-wide without a condition-specific MCAF, so FAF95 feeds BA1 only.
+    expect(rows[0].facts).toContainEqual({ label: "FAF95 (BA1 input)", value: "2.00%" });
     expect(rows[1].facts).toContainEqual({ label: "Candidate allele", value: "4-1806119-G-C (GRCh37)" });
 
     const fafModel = buildPopulationComparison(evidence([found("A", 0.03, { faf95: 0.02 }), found("C", 0.025, { faf95: 0.02 })]));

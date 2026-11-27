@@ -133,3 +133,26 @@ it("splits Method vs Data on app-computed rungs and reports Source, Model, scale
   const hs154 = readings.find((r) => r.key === "hs:154")!;
   expect(hs154.facts.find((f) => f.label === "3D Cα–Cα distance")?.value).toBe("Not on the model");
 });
+
+it("prints a residue's pLDDT with one decimal, so a value just under the 70 band edge never reads as 70", () => {
+  const ctx = hotspotContextSchema.parse(sod1Hotspots);
+  const trace = ctx.spatial.trace!;
+  const plddt = trace.plddt.map((v, i) => (trace.residues[i] === 5 ? 69.6 : v));
+  const ev = buildHotspotEvidence({ context: { ...ctx, spatial: { ...ctx.spatial, trace: { ...trace, plddt } } }, loadState: "ready", residue: 5, residueLabel: "Ala5" });
+  const hs5 = hotspotReadings(ev).find((r) => r.key === "hs:5")!;
+  expect(hs5.facts.find((f) => f.label === "pLDDT")?.value).toBe("69.6 / 100");
+});
+
+
+it("shows grades and sources without repeating the cards' verdicts", () => {
+  render(<FunctionRail analysisResult={sod1()} />);
+  const rail = screen.getByTestId("function-rail-hotspots");
+  const context = hotspotContextSchema.parse(sod1Hotspots);
+  const evidence = buildHotspotEvidence({ context, loadState: "ready", residue: 5, residueLabel: "Ala5" });
+  for (const rung of evidence.rungs) {
+    expect(rail.textContent).toContain(rung.source.label);
+    expect(rail.textContent).not.toContain(rung.headline);
+  }
+  expect(rail.textContent).toContain(`Source checked ${context.cspec.retrievedAt!.slice(0, 10)}`);
+  expect(screen.getByTestId("function-rule-trace")).toBeTruthy();
+});

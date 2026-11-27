@@ -71,7 +71,7 @@ describe("context strip", () => {
     const chips = within(screen.getByRole("list", { name: "Gene constraint, gnomAD v4.1.2" })).getAllByRole("listitem");
     const verdict = (chip: HTMLElement) => chip.querySelector(".vcs-chip-verdict")!;
     const regional = chips.find(chip => chip.textContent?.includes("Regional O/E"))!;
-    expect(verdict(regional)).toHaveTextContent("Unverified locus");
+    expect(verdict(regional)).toHaveTextContent("Regional O/E withheld");
     expect(verdict(regional)).toHaveAttribute("data-unmeasured");
     expect(verdict(chips[0])).not.toHaveAttribute("data-unmeasured");
   });

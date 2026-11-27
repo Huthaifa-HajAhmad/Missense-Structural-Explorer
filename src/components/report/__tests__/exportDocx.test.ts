@@ -66,3 +66,10 @@ describe("buildReportDocx", () => {
     expect(main).toContain("&lt;b&gt;x&lt;/b&gt; &amp; y");
   });
 });
+
+for (const excluded of [false, true]) it(`keeps mandatory gaps with edited classification, excluded=${excluded}`, async () => {
+ const d = doc({ sections: { ...defaultReportSections(), classification: !excluded }, edits: { classification: { text: "Author wording", base: "" } } });
+ const data = await xml(d);
+ expect(data.main).toContain("Finished with gaps");
+ expect(data.main).toContain("Population (not assessed)");
+});

@@ -6,8 +6,14 @@ import { geminiCredentials } from "../geminiCredentials";
 const finishedNoAccession: any = { ruleBasedInsights: null, metadata: { uniprotId: "", pipelineStages: { core: "complete" } } };
 
 describe("a stage may not wait after the run has ended", () => {
-  it.each(["structure", "landscape", "insights"])("%s is settled as unavailable once core finished with nothing for it", view => {
+  it.each(["structure", "landscape", "insights", "report"])("%s is settled as unavailable once core finished with nothing for it", view => {
     expect(getWorkflowStageStatus({ view, result: finishedNoAccession }).status).toBe("unavailable");
+  });
+
+  it("settles both insights and report as unavailable on an empty completed run", () => {
+    const emptyComplete: any = { metadata: { pipelineStages: { core: "complete", narrative: "complete" } } };
+    expect(getWorkflowStageStatus({ view: "insights", result: emptyComplete }).status).toBe("unavailable");
+    expect(getWorkflowStageStatus({ view: "report", result: emptyComplete }).status).toBe("unavailable");
   });
 
   it("names the missing accession as the reason", () => {

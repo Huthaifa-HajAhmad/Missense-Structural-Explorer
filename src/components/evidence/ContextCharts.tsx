@@ -46,11 +46,13 @@ export function PextStrip({ regions, activeIndex, position }: { regions: PextReg
   });
   const activeLabel = labels[activeIndex];
   let previousLabelEnd = -Infinity;
+  let hiddenLabels = 0;
   const boxes = layout.map(({ region: r, x, width: w }, i) => {
     const label = labels[i];
     const showLabel = i === activeIndex || (label.start >= previousLabelEnd + 4
       && (!activeLabel || label.end + 4 <= activeLabel.start || label.start >= activeLabel.end + 4));
     if (showLabel) previousLabelEnd = label.end;
+    else hiddenLabels++;
     return <g key={`${r.start}-${r.stop}`}>
       <rect x={x} y={42} width={w} height={30} rx={3} fill={r.mean === null ? 'var(--cs-surface-2)' : 'currentColor'}
         fillOpacity={r.mean === null ? 1 : 0.12 + 0.88 * Math.min(1, r.mean)} stroke={i === activeIndex ? 'var(--cs-text-primary)' : r.mean === null ? 'var(--cs-text-secondary)' : 'none'} strokeDasharray={r.mean === null ? '3 2' : undefined} strokeWidth={2}>
@@ -64,16 +66,20 @@ export function PextStrip({ regions, activeIndex, position }: { regions: PextReg
   useLayoutEffect(() => {
     if (scroller.current && markerX !== null) scroller.current.scrollLeft = Math.max(0, markerX - scroller.current.clientWidth / 2);
   }, [markerX]);
-  return <div ref={scroller} className="xp-pext-scroll" tabIndex={0} role="region" aria-label="Coding region map">
-    <svg className="ctx-pext xp-pext-map" viewBox={`0 0 ${W} ${H}`} role="img"
-      aria-label={`Mean base-level pext across ${regions.length} coding regions${markerX === null ? '' : `; the variant falls in outlined region ${activeIndex + 1}`}`}>
-      {boxes}
-      {markerX !== null && <g fill="var(--cs-text-primary)">
-        <text x={Math.max(65, Math.min(W - 65, markerX))} y={17} textAnchor="middle" fontSize={14} fontWeight={600}>Variant · region {activeIndex + 1}</text>
-        <path d={`M${markerX} 23 V35 M${markerX - 5} 31 L${markerX} 38 L${markerX + 5} 31`} fill="none" stroke="var(--cs-text-primary)" strokeWidth={2} />
-      </g>}
-    </svg>
-  </div>;
+  return <>
+    <div ref={scroller} className="xp-pext-scroll" tabIndex={0} role="region" aria-label="Coding region map">
+      <svg className="ctx-pext xp-pext-map" viewBox={`0 0 ${W} ${H}`} role="img"
+        aria-label={`Mean base-level pext across ${regions.length} coding regions${markerX === null ? '' : `; the variant falls in outlined region ${activeIndex + 1}`}`}>
+        {boxes}
+        {markerX !== null && <g fill="var(--cs-text-primary)">
+          <text x={Math.max(65, Math.min(W - 65, markerX))} y={17} textAnchor="middle" fontSize={14} fontWeight={600}>Variant · region {activeIndex + 1}</text>
+          <path d={`M${markerX} 23 V35 M${markerX - 5} 31 L${markerX} 38 L${markerX + 5} 31`} fill="none" stroke="var(--cs-text-primary)" strokeWidth={2} />
+        </g>}
+      </svg>
+    </div>
+    {/* Dense maps cannot number every region; the note says how many are unnumbered, so none vanish silently. */}
+    {hiddenLabels > 0 && <p className="ctx-caption">+{hiddenLabels} more region {hiddenLabels === 1 ? 'number' : 'numbers'} not drawn on the map.</p>}
+  </>;
 }
 
 /** The variant's column in a gapped alignment, with the flank each side. Gaps are drawn as gaps. */

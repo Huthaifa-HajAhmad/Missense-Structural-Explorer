@@ -158,7 +158,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
         tabIndex={-1}
         aria-labelledby="rsx-rail-trace"
       >
-        <h3 className="eyebrow" id="rsx-rail-trace">
+        <h2 className="eyebrow" id="rsx-rail-trace">
           <span>
             <GitBranch className="w-4 h-4" aria-hidden="true" />
             Trace
@@ -166,7 +166,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
           <button type="button" className="rsx-info" onClick={handleCopy} title={copyHint} aria-label={copyHint}>
             {copyState === "copied" ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
           </button>
-        </h3>
+        </h2>
         <ol className="rsx-steps" data-testid="residue-trace">
           {model.trace.map((step, i) => (
             <Step key={step.label} n={i + 1} {...step} />
@@ -194,12 +194,12 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
         tabIndex={-1}
         aria-labelledby="rsx-rail-narrative"
       >
-        <h3 className="eyebrow" id="rsx-rail-narrative">
+        <h2 className="eyebrow" id="rsx-rail-narrative">
           <span>
             <MessageSquareText className="w-4 h-4" aria-hidden="true" />
             Model narrative
           </span>
-        </h3>
+        </h2>
         {narrative.state === "loading" ? (
           <p className="rsx-prose rsx-prose--muted" role="status">{ENGINE_STATE_LABELS.running}</p>
         ) : narrative.prose ? (
@@ -242,16 +242,16 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
 
       {/* ── 3. Cut-points ── */}
       <section className="rsx-rsec" aria-labelledby="rsx-rail-cuts">
-        <h3 className="eyebrow" id="rsx-rail-cuts">
+        <h2 className="eyebrow" id="rsx-rail-cuts">
           <span>
             <Ruler className="w-4 h-4" aria-hidden="true" />
             Cut-points · this app&apos;s own
           </span>
-        </h3>
+        </h2>
         <div className="rsx-cuts" data-testid="residue-cuts">
           {Object.entries(cutGroups).map(([group, cuts]) => (
             <section className="rsx-cuts__group" key={group}>
-              <h4 className="rsx-cuts__title">{group}</h4>
+              <h3 className="rsx-cuts__title">{group}</h3>
               <div className="rsx-cut" role="list" aria-label={`${group} bands`}>
                 {cuts.map(cut => (
                   <span className="rsx-cut__band" role="listitem" key={cut.rule} data-active={cut.active || undefined}>
@@ -268,12 +268,12 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
 
       {/* ── 4. Method ── */}
       <section className="rsx-rsec" aria-labelledby="rsx-rail-method">
-        <h3 className="eyebrow" id="rsx-rail-method">
+        <h2 className="eyebrow" id="rsx-rail-method">
           <span>
             <BookOpen className="w-4 h-4" aria-hidden="true" />
             Method
           </span>
-        </h3>
+        </h2>
         <ul className="rsx-notes">
           {model.notes.map(note => (
             <li key={note}>{note}</li>

@@ -19,7 +19,7 @@ import {
   evaluateAlphaMissense,
   evaluatePopEve,
 } from "../thresholds";
-import { buildPredictorEvidence, localPredictorAgreement, predictorFinding, predictorSummary } from "../predictorEvidence";
+import { buildPredictorEvidence, informationalSummary, localPredictorAgreement, predictorFinding, predictorSummary, predictorUseLabel } from "../predictorEvidence";
 import { buildPredictorComparison } from "../evidenceComparison";
 import { buildLadderEvidence } from "../ladderEvidence";
 
@@ -479,5 +479,58 @@ describe("VCEP rules and Walker 2023 splicing PP3 in predictorEvidence", () => {
     });
     const agreement = localPredictorAgreement(cep290);
     expect(agreement.calibrated.some(x => x.reading.key === "cadd")).toBe(false);
+  });
+});
+
+describe("predictorUseLabel — one status per tool, the same on every screen", () => {
+  it("names the tool that set the call, the tools it did not need, and the context-only models", () => {
+    const e = buildPredictorEvidence({ result: gzf1() });
+    const status = (key: string) => predictorUseLabel(e.readings.find(r => r.key === key)!, e.primary);
+    expect(status("revel")).toBe("Sets PP3/BP4");
+    expect(status("bayesdel")).toBe("Calibrated, not used (an earlier tool answered)");
+    expect(status("esm")).toBe("Calibrated, no score");
+    expect(status("cadd")).toBe("Published band, not counted");
+    expect(status("popeve")).toBe("Context only, not counted");
+    expect(status("alphagenome")).toBe("Context only, not counted");
+  });
+
+  it("does not say a tool sets PP3/BP4 when it answered but the rule withheld the call", () => {
+    const candidate = {
+      ...gzf1(),
+      predictorData: {
+        caddPhred: null, amPathogenicity: 0.835, amClass: "likely_pathogenic", source: "Ensembl VEP (GRCh38)",
+        locusResolution: {
+          route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [],
+          candidates: [
+            { grch37Id: null, id: "4-1804392-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 24.5, caddSource: "ProtVar" },
+            { grch37Id: null, id: "4-1804392-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar" },
+          ],
+        },
+      },
+    };
+    const e = buildPredictorEvidence({ result: candidate });
+    const revel = e.readings.find(r => r.key === "revel")!;
+    expect(predictorUseLabel(revel, e.primary)).toBe("Answered, does not set PP3/BP4");
+  });
+});
+
+describe("one-sided cut-points and the popEVE wording", () => {
+  it("says popEVE is not deleterious above its cut-point, not that it is 'above the cut-point'", () => {
+    const e = buildPredictorEvidence({ result: gzf1() });
+    expect(e.readings.find(r => r.key === "popeve")!.callLabel).toBe("Not deleterious (above −4.617)");
+  });
+
+  it("states that popEVE has a cut-point on the deleterious side only", () => {
+    const e = buildPredictorEvidence({ result: gzf1() });
+    expect(informationalSummary(e).find(f => f.group === "severity")!.headline).toBe(
+      "1 of 1 scored · 1 has a published cut-point (deleterious side only)",
+    );
+  });
+});
+
+describe("TP53 BayesDel: the note says which band set the reading uses", () => {
+  it("names the general Pejaver 2022 bands and why the VCEP panel rule is not applied", () => {
+    const e = buildPredictorEvidence({ result: gzf1({ metadata: { gene: "TP53", variant: "p.Arg175His" } }) });
+    expect(e.primary.vcepNotes.join(" ")).toMatch(/Align-GVGD is not computed here, so the reading uses the general Pejaver 2022 bands/);
   });
 });

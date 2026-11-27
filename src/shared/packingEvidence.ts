@@ -18,7 +18,8 @@
  * That tab was retired on 2026-11-18 (doc/PROTEIN_LANGUAGE_MODELS_DECISION.md); the physical readings
  * moved here unchanged.
  */
-import { ENGINE_STATE_LABELS } from "./engineStatus";
+import { ENGINE_STATE_LABELS, KJ_PER_KCAL, formatDdgValue, type EnergyUnit } from "./engineStatus";
+import { signedDdgNumber } from "./energeticsEvidence";
 import { THRESHOLDS, LOCAL_STRUCTURAL_WINDOW, STRUCTURE_COLOUR_BANDS } from "./thresholds/constants";
 
 export type ReadingTone = "neutral" | "muted" | "warning" | "accent";
@@ -85,12 +86,14 @@ export interface PackingEvidenceInput {
   foldingError?: string | null;
   /** The analysed residue's site record (`result.disruptionPredictor`): its pLDDT and what kind of B-factor it is. */
   site?: { plddt?: number | null; bFactorKind?: string | null } | null;
+  /** The unit the energy terms are shown in. The clash call always uses kcal/mol, whatever this is. */
+  unit?: EnergyUnit;
 }
 
 const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-/** "+0.26", "−3.02": a signed number with a true minus sign. */
-export const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
+/** "+0.26", "−3.02", and "0.00" for zero (no sign): a signed number with a true minus sign. */
+export const signed = (v: number, digits: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(digits)}`;
 
 const computed = (): ReadingAvailability => ({ state: "computed", label: ENGINE_STATE_LABELS.computed, reason: null });
 
@@ -121,8 +124,11 @@ export function buildPackingEvidence({
   isFolding = false,
   foldingStatus,
   foldingError,
-  site
+  site,
+  unit = "kcal/mol"
 }: PackingEvidenceInput): PackingEvidence {
+  // The FoldX energy terms are kcal/mol; this converts a value for display only.
+  const inUnit = (kcal: number) => (unit === "kJ/mol" ? kcal * KJ_PER_KCAL : kcal);
   const hasFe = Boolean(fe) && (finite(fe.vdw) !== null || finite(fe.electrostatics) !== null);
   // Stated by the caller that built the pair; a zero RMSD is the fallback for snapshots that predate it.
   const buildModel = diff?.mutantModel === "foldx-buildmodel";
@@ -177,11 +183,11 @@ export function buildPackingEvidence({
       key: "vdw",
       name: "Van der Waals clash term",
       description: "FoldX Van der Waals clash energy, mutant − wild type. One component of ΔΔG.",
-      value: vdw,
-      text: vdw !== null ? signed(vdw, 2) : "—",
-      unit: "kcal/mol",
-      scale: { min: -1, max: Math.max(4, vdw !== null ? Math.ceil(vdw + 0.5) : 4) },
-      marks: [{ value: clashMark, label: `${clashMark.toFixed(1)} kcal/mol · local clash mark` }],
+      value: vdw !== null ? inUnit(vdw) : null,
+      text: vdw !== null ? signedDdgNumber(vdw, unit) : "—",
+      unit,
+      scale: { min: inUnit(-1), max: inUnit(Math.max(4, vdw !== null ? Math.ceil(vdw + 0.5) : 4)) },
+      marks: [{ value: inUnit(clashMark), label: `${formatDdgValue(clashMark, unit, 1)} ${unit} · local clash mark` }],
       markKind: "local",
       call: vdw === null ? null : vdw > clashMark
         ? { label: "Above clash mark", tone: "warning" }
@@ -193,9 +199,9 @@ export function buildPackingEvidence({
       key: "elec",
       name: "Electrostatics term",
       description: "FoldX electrostatic energy, mutant − wild type. One component of ΔΔG.",
-      value: elec,
-      text: elec !== null ? signed(elec, 2) : "—",
-      unit: "kcal/mol",
+      value: elec !== null ? inUnit(elec) : null,
+      text: elec !== null ? signedDdgNumber(elec, unit) : "—",
+      unit,
       scale: null,
       marks: [],
       markKind: "none",

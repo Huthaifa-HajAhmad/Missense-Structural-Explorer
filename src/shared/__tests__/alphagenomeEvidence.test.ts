@@ -112,3 +112,16 @@ describe("the score split by origin", () => {
     expect(ev.newShare).toBeNull();
   });
 });
+
+describe("AlphaGenome when no exact DNA change was established (ABCG1 pattern)", () => {
+  it("gives the same reason as the other tabs, not a generic 'no cause was recorded'", () => {
+    const result = {
+      conservationData: { alphagenome: null, assemblyRefusals: null },
+      predictorData: {
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [] },
+      },
+    };
+    const ev = buildAlphaGenomeEvidence({ result: result as any });
+    expect(ev.availability.reason).toMatch(/^AlphaGenome was not queried: this protein change can come from more than one nucleotide allele/);
+  });
+});

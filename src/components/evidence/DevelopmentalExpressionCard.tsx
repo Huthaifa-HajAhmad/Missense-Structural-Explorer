@@ -39,7 +39,7 @@ export function DevelopmentalExpressionCard({ load, systems, onRetry, coverageOn
             <option value="all">All public age cohorts</option>{Object.entries(DGTEX_COHORTS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>}
           {coverageOnly && <p className="ctx-caption">Sampling scope: {Object.entries(DGTEX_COHORTS).find(([key]) => key === cohortScope)?.[1] ?? 'All public age cohorts'}. Tissue values are in Tissue explorer; select Pediatric RNA above for donor and sample counts.</p>}
-          <p className="ctx-caption">Source age groups are kept as published. Exact ages are protected. This filter is independent of disease onset.</p>
+          <p className="ctx-caption">Source age groups are kept as published. Exact ages are protected.</p>
           {!!evidence.gaps.length && <p className="ctx-prose">No tissue in the local grouping for {evidence.gaps.map(s => REVIEW_SYSTEMS.find(r => r.id === s)?.label).join(', ')} in this sampled age scope. Missing coverage is not a zero measurement.</p>}
           {!evidence.relevant.length && !evidence.other.length && <p>No eligible tissue samples in this source cohort.</p>}
         </div>

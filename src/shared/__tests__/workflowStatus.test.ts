@@ -89,12 +89,13 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(status.status).toBe("progress");
   });
 
-  it("P1-12: insights tab is gated on the narrative loader only, not on FoldX liveness", () => {
+  it("P1-12: insights tab reports gaps for narrative-only results without a rule record, and progress while the narrative loader runs", () => {
+    // Corrected rule (advisor re-review Finding #4): a narrative-only result without a
+    // rule-engine record must surface gaps ("degraded") rather than claim "complete".
     const insightsResult: AnalysisResult = {
       analysis: "Consensus narrative ready."
     };
 
-    // FoldX dead (job failed) but narrative finished — tab must be complete.
     const notLoading = positionalStatus(
       "insights",
       insightsResult,
@@ -108,7 +109,8 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       undefined,
       /* isNarrativeLoading */ false
     );
-    expect(notLoading.status).toBe("complete");
+    expect(notLoading.status).toBe("degraded");
+    expect(notLoading.desc).toMatch(/Rule-engine record/i);
 
     const loading = positionalStatus(
       "insights",
@@ -121,10 +123,19 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
   });
 
   it("should mark insights, literature, and report stages as complete for cached/completed variants", () => {
+    // Complete cached variant with rule-engine record and settled core evidence areas
+    // (advisor re-review Finding #4: partial records without ruleBasedInsights are degraded, not complete).
     const cachedResult: AnalysisResult = {
       analysis: "Full clinical narrative cached.",
       insights: { pathogenicityScore: 0.95 } as any,
+      metadata: { gene: "TP53", variant: "p.Arg175His", uniprotId: "P04637", pipelineStages: { core: "complete" } } as any,
+      ruleBasedInsights: { acmgVerdict: "Pathogenic", acmgCriteria: [] } as any,
       clinvar: { classification: "Pathogenic" } as any,
+      predictorData: { caddPhred: 28.4 } as any,
+      gnomadFrequency: { maxAF: 0.002, groupMaxAF: 0.002, exomeAF: 0.002, exomeAC: 20, exomeAN: 10000 } as any,
+      serviceStatus: { gnomadFrequency: "ok", uniprotFeatures: "ok" } as any,
+      conservationData: { revel: 0.4, spliceai: { max_ds: 0.01, ds_ag: 0.01, ds_al: 0, ds_dg: 0, ds_dl: 0 } } as any,
+      uniprotFeatures: { features: [], subunitComment: "Homotetramer." } as any,
       foldingEnergetics: { foldx: 2.5 } as any,
       landscapeData: [{ position: 1, score: 0.8 }] as any
     };

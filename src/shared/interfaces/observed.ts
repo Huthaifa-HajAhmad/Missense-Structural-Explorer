@@ -15,7 +15,7 @@ import type { BuildInterfacesInput, InterfacesEvidence, ObservedView } from "./t
 /** Density budget: a handful of set-aside chains are worth showing; more fold behind one line. */
 const SET_ASIDE_SHOWN = 4;
 
-function toView(p: NonNullable<MultimerData["experimental"]>["partners"][number], gene: string): ObservedView {
+export function toView(p: NonNullable<MultimerData["experimental"]>["partners"][number], gene: string): ObservedView {
   return {
     ...p,
     label: observedLabel(p, gene),
@@ -48,12 +48,40 @@ function mergeArtefacts(all: ObservedView[]): ObservedView[] {
   return artefacts;
 }
 
+/** Merge accessions of one human gene before any headline, track or partner row reads them. */
+export function mergeObserved(all: ObservedView[]): ObservedView[] {
+  const groups = new Map<string, ObservedView>();
+  const union = (a: string[], b: string[]) => [...new Set([...a, ...b])].sort((x, y) => x.localeCompare(y));
+  for (const p of all) {
+    const key = [p.context ?? "native", p.organism ?? "human", p.gene?.toUpperCase() ?? p.accession].join(":");
+    const seen = groups.get(key);
+    if (!seen) { groups.set(key, { ...p }); continue; }
+    const pdbEntries = union(seen.pdbEntries, p.pdbEntries);
+    const variantEntries = union(seen.variantEntries, p.variantEntries);
+    const modelledEntries = seen.modelledEntries && p.modelledEntries
+      ? union(seen.modelledEntries, p.modelledEntries) : undefined;
+    const residues = [...new Set([...seen.residues, ...p.residues])].sort((a, b) => a - b);
+    const residueEntries = seen.residueEntries && p.residueEntries ? residues.map(r => union(seen.residueEntries?.[seen.residues.indexOf(r)] ?? [], p.residueEntries?.[p.residues.indexOf(r)] ?? [])) : undefined;
+    // Without entry IDs, overlapping accession counts cannot be added safely. Keep the largest known count.
+    const support = residueEntries ? residueEntries.map(e => Math.max(1, e.length)) : residues.map(r => Math.max(seen.support[seen.residues.indexOf(r)] ?? 0, p.support[p.residues.indexOf(r)] ?? 0));
+    Object.assign(seen, { pdbEntries, variantEntries, modelledEntries, residues, support, residueEntries,
+      unmodelled: seen.unmodelled && p.unmodelled ? seen.unmodelled.flatMap(a => p.unmodelled!.flatMap(b => Math.max(a.start, b.start) <= Math.min(a.end, b.end) ? [{ start: Math.max(a.start, b.start), end: Math.min(a.end, b.end) }] : [])) : undefined,
+      total: pdbEntries.length, n: modelledEntries?.length ?? pdbEntries.length, k: variantEntries.length,
+      maxSupport: Math.max(0, ...support), variantAtInterface: seen.variantAtInterface || p.variantAtInterface });
+  }
+  return [...groups.values()];
+}
+
 export function readObserved(asmData: MultimerData | null, input: BuildInterfacesInput, gene: string, loading: boolean): InterfacesEvidence["observed"] {
-  const exp = asmData?.experimental;
-  const all = (exp?.status === "ok" ? exp.partners : []).map(p => toView(p, gene));
-  const partners = all.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal");
+  const stored = asmData?.experimental;
+  // Old counts cannot be split by context without per-residue entry IDs. Refresh before using them.
+  const needsRefresh = stored?.status === "ok" && stored.partners.length > 0 && stored.peptideChecked !== true;
+  const exp = needsRefresh ? undefined : stored;
+  const all = mergeObserved((exp?.status === "ok" ? exp.partners : []).map(p => toView(p, gene)));
+  const partners = all.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal" && p.context !== "peptide");
   const fibrils = all.filter(p => !p.artefact && p.context === "fibril");
   const crystals = all.filter(p => !p.artefact && p.context === "crystal");
+  const peptides = all.filter(p => !p.artefact && p.context === "peptide");
   const artefacts = mergeArtefacts(all);
   const availabilityView = availability(
     // A failed assembly service (no payload at all) is a provider failure, not "not read yet".
@@ -66,8 +94,8 @@ export function readObserved(asmData: MultimerData | null, input: BuildInterface
       unknown: "Solved structures have not been read for this variant yet.",
     }
   );
-  if (availabilityView.state === "ok" && partners.length === 0 && (artefacts.length || fibrils.length || crystals.length)) {
-    const nonNative = [fibrils.length ? "amyloid fibril stacking" : null, crystals.length ? "contacts outside a deposited monomer assembly" : null].filter(Boolean);
+  if ((availabilityView.state === "ok" || availabilityView.state === "empty") && partners.length === 0 && (artefacts.length || fibrils.length || crystals.length || peptides.length)) {
+    const nonNative = [peptides.length ? "peptide fragments" : null, fibrils.length ? "amyloid fibril stacking" : null, crystals.length ? "contacts outside a deposited monomer assembly" : null].filter(Boolean);
     Object.assign(availabilityView, {
       state: "empty",
       label: ENGINE_STATE_LABELS["no-result"],
@@ -76,11 +104,16 @@ export function readObserved(asmData: MultimerData | null, input: BuildInterface
         : `The only interfaces in solved structures of ${gene} are with construct tags, antibodies or unmapped chains, which are not counted.`,
     });
   }
+  if (needsRefresh) Object.assign(availabilityView, {
+    state: "pending", label: null,
+    reason: "Stored interfaces predate the peptide check and must be refreshed before native contacts can be counted.",
+  });
   return {
     availability: availabilityView,
     partners,
     fibrils,
     crystals,
+    peptides,
     artefacts,
     artefactsShown: artefacts.slice(0, SET_ASIDE_SHOWN),
     artefactsFold: artefacts.length > SET_ASIDE_SHOWN

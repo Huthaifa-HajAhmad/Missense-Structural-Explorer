@@ -17,7 +17,7 @@ export function ExpressionAnswer({ answer, coverage, facts, onset }: {
     <p className="xp-answer__source">{answer.source}</p>
     <p className="xp-answer__headline">{answer.headline}</p>
     <p className="xp-answer__detail">{answer.detail}</p>
-    {coverage.length > 0 && <ul className="xp-coverage" aria-label="Review systems and GTEx coverage">{coverage.map(c =>
+    {coverage.length > 0 && <ul className="xp-coverage" aria-label="Body systems and GTEx coverage">{coverage.map(c =>
       <li key={c.id} className="xp-coverage__cell" data-state={c.state}>
         <span className="xp-coverage__name">{c.label}</span>
         <span className="xp-coverage__value">{c.top ? <><span className="ctx-mono">{c.top.value === null ? '—' : fmt(c.top.value)}</span> TPM</> : c.state === 'no-reading' ? 'No gene reading' : 'Not sampled'}</span>

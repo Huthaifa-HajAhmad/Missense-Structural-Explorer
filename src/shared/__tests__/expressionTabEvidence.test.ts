@@ -44,7 +44,7 @@ describe('source facts', () => {
   it('states each source state in engine vocabulary rather than leaving blanks', () => {
     const facts = buildSourceFacts({ adult: finding, developmental: { status: 'ready', data: { status: 'not-installed', counts: null } },
       hpa: { status: 'error', data: null }, pext: { load: 'ready', status: 'ready', location: { state: 'no-region', region: null, index: -1 }, regionCount: 23 } });
-    expect(facts.map(f => f.value)).toEqual(['4 sampled', 'Not available here', 'Provider error', 'Not placed']);
+    expect(facts.map(f => f.value)).toEqual(['4 tissues', 'Not available here', 'Provider error', 'Not placed']);
     expect(facts[3].sub).toBe('Outside the coding regions');
   });
   it.each(['loading', 'ready'] as const)('does not claim coding placement without a gene locus while %s', load => {
@@ -57,7 +57,8 @@ describe('source facts', () => {
     const facts = buildSourceFacts({ adult: finding, developmental: { status: 'ready', data: { status: 'ready', counts: { includedSamples: 300, includedDonors: 40 } } },
       hpa: { status: 'ready', data: { status: 'ready', rna: { specificity: 'Low tissue specificity' }, protein: { evidence: 'Evidence at protein level' } } },
       pext: { load: 'ready', status: 'ready', location: { state: 'region', region, index: 15 }, regionCount: 23 } });
-    expect(facts.map(f => f.value)).toEqual(['4 sampled', '300 samples', 'Low tissue specificity', 'pext 0.85']);
+    expect(facts.map(f => f.value)).toEqual(['4 tissues', '300 samples', 'Low tissue specificity', 'pext 0.85']);
+    expect(facts[2].label).toBe('Human Protein Atlas (RNA)');
     expect(facts[3].sub).toBe('Coding region 16 of 23, mean of 2 tissues');
   });
   it('labels the HPA protein field as an existence summary, not a tissue detection', () => {

@@ -13,7 +13,7 @@
  * Replaced: a banner that counted species and "identifiers" and said nothing about the residue.
  */
 import { alignedProteinName, buildAlignmentEvidence, mismatchReason, speciesNames, type AlignmentResponse } from './residueAlignment';
-import type { ImpcScreen, ModelOrganismResponse } from './modelOrganisms';
+import { buildMouseScreenPlot, type ImpcScreen, type ModelOrganismResponse } from './modelOrganisms';
 import type { ModelPhenotypesResponse } from './modelPhenotypes';
 import { AMINO_ACID_1_TO_3_TITLE } from './aminoAcids';
 
@@ -72,7 +72,15 @@ function mouseFact(load: Load<ModelOrganismResponse>): string {
 function screenSentence(s: ImpcScreen): string {
   if (s.phenotypingDataAvailable === false) return `IMPC has not phenotyped ${s.symbol}. Absence of data is not a normal result.`;
   if (s.phenotypingDataAvailable === null) return `IMPC does not say whether ${s.symbol} was phenotyped. This is not a normal result.`;
-  return `IMPC phenotyped ${s.symbol}: ${s.significant.length ? `a significant difference in ${s.significant.length}` : 'no significant difference in any'} of ${s.significant.length + s.notSignificant.length} reported categories.`;
+  // The same body systems the grid draws, so the sentence and the grid share one list and one denominator.
+  const plot = buildMouseScreenPlot(s, []);
+  const reported = plot.rows.filter(r => r.cell !== 'not-reported').length;
+  const significant = plot.rows.filter(r => r.cell === 'significant' || r.cell === 'mixed').length;
+  const outside = plot.unmapped.length;
+  const outsideSignificant = s.significant.filter(t => plot.unmapped.includes(t)).length;
+  const grid = `${significant ? `a significant difference in ${significant} of ${reported}` : `no significant difference in any of the ${reported}`} body ${reported === 1 ? 'system' : 'systems'} shown in the grid`;
+  const others = outside ? ` Outside the grid's grouping, ${outsideSignificant} of ${outside} ${outside === 1 ? 'category shows' : 'categories show'} a significant difference.` : '';
+  return `IMPC phenotyped ${s.symbol}: ${grid}.${others}`;
 }
 
 /** What the disease comparison supports. A table that was not read supports no claim either way. */
@@ -89,10 +97,11 @@ function phenotypeFact(load: Load<ModelPhenotypesResponse>, diseaseMatches: numb
   if (data?.status !== 'ready') return data?.message ?? 'No curated phenotypes were returned.';
   const ready = data.species.filter(s => s.status === 'ready');
   const shown = ready.reduce((n, s) => n + s.phenotypes.length, 0);
+  const retrieved = ready.reduce((n, s) => n + s.total, 0);
   const withRecords = ready.filter(s => s.phenotypes.length).length;
   const missing = ready.reduce((n, s) => n + Math.max(0, s.total - s.phenotypes.length), 0);
   return [
-    shown ? `${plural(shown, 'curated record')} in ${plural(withRecords, 'species', 'species')}.` : 'No curated phenotype records. That is not evidence of a normal organism.',
+    shown ? `${plural(shown, 'resolved record')} in ${plural(withRecords, 'species', 'species')}, out of ${retrieved} summaries retrieved.` :'No curated phenotype records. That is not evidence of a normal organism.',
     missing ? `${missing} more ${missing === 1 ? 'summary has' : 'summaries have'} no resolved term, so this count is partial.` : '',
     shown ? diseaseSentence(data.mapping, diseaseMatches) : '',
   ].filter(Boolean).join(' ').replace('. Of these, none', '; none');
@@ -108,8 +117,9 @@ export function speciesFinding(input: SpeciesFindingInput): SpeciesFinding {
   const placed = evidence.ready && evidence.rows.length > 0 && !evidence.mismatchCause && !!position;
   const split = evidence.oneToOne.length > 0 && evidence.oneToOne.length < evidence.rows.length;
   const kept = speciesNames(evidence.oneToOne.filter(r => r.m.state === 'identical'));
+  // The denominator is always the aligned orthologs; the one-to-one split is added in brackets, so the count never changes its base.
   const headline = !placed ? '' : split
-    ? `${aa(wildType)}${position} is the same amino acid in ${evidence.identicalOneToOne} of ${evidence.oneToOne.length} one-to-one orthologs${kept.length ? ` (${kept.join(', ')})` : ''}.`
+    ? `${aa(wildType)}${position} is the same amino acid in ${evidence.identical} of ${evidence.rows.length} aligned orthologs (${evidence.identicalOneToOne} of ${evidence.oneToOne.length} one-to-one${kept.length ? `: ${kept.join(', ')}` : ''}).`
     : `${aa(wildType)}${position} is the same amino acid in ${evidence.identical} of ${evidence.rows.length} aligned orthologs.`;
   const answer = placed ? headline
     : evidence.mismatchCause ? 'The variant site could not be placed in the ortholog alignments.'

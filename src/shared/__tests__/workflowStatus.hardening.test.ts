@@ -12,6 +12,17 @@ describe("truthful pipeline outcomes", () => {
   // UROD p.Gly318Arg: a bundle saved before FoldX returned. The rail read "ΔΔG = +0.53 kcal/mol ·
   // Available" — a secondary engine's value on a stage it called complete. It now reports the
   // consensus it actually has (the median, with its count) and still names FoldX's absence.
+  it("does not show a median while an engine is still running", () => {
+    const energetics = { rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034, stabilityoracleStatus: "done", raspStatus: "done" };
+    const status = getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: energetics, thermompnnStatus: "done", isFolding: true });
+    expect(status.desc).not.toContain("Median ΔΔG");
+  });
+  it("does not show a median when the engines withhold a stability conclusion", () => {
+    const lowConfidence = { ...result, disruptionPredictor: { plddt: 20 } } as any;
+    const energetics = { rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034, stabilityoracleStatus: "done", raspStatus: "done", structureProvenance: { source: "alphafold" } };
+    const status = getWorkflowStageStatus({ view: "energetics", result: lowConfidence, foldingEnergetics: energetics, thermompnnStatus: "done" });
+    expect(status.desc).not.toContain("Median ΔΔG");
+  });
   it("shows the median with its engine count and degrades the stage when FoldX has no value", () => {
     const energetics = { rasp: -1.4533, thermompnn: -0.106, stabilityoracle: -0.5034, stabilityoracleStatus: "done", raspStatus: "done" };
     const status = getWorkflowStageStatus({ view: "energetics", result, foldingEnergetics: energetics, thermompnnStatus: "done" });
@@ -112,4 +123,24 @@ describe("truthful pipeline outcomes", () => {
     expect(multiResidueStatus.status).toBe("progress");
     expect(multiResidueStatus.desc).toBe("2 residues ready · Loading whole protein...");
   });
+});
+
+for (const view of ["insights", "report"]) it(`${view} names population gaps and local FoldX work`, () => {
+ const result = { metadata: { gene: "ABCG1" }, ruleBasedInsights: { acmgCriteria: [], acmgVerdict: "Uncertain" } } as any;
+ const settled = getWorkflowStageStatus({ view, result });
+ expect(settled.status).toBe("degraded");
+ expect(settled.desc).toContain("Population (not assessed)");
+ const running = getWorkflowStageStatus({ view, result, isFolding: true });
+ expect(running.status).toBe("progress");
+});
+
+for (const view of ["insights", "report"]) it(`${view} reports gaps instead of complete when ruleBasedInsights is missing`, () => {
+ const result = {
+  metadata: { gene: "TP53", pipelineStages: { core: "complete" } },
+  clinvar: { classification: "Pathogenic" },
+  predictorData: { caddPhred: 28.4 },
+ } as any;
+ const status = getWorkflowStageStatus({ view, result });
+ expect(status.status).toBe("degraded");
+ expect(status.desc).toContain("Rule-engine record (not recorded)");
 });

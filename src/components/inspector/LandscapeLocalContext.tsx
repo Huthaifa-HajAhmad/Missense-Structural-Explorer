@@ -2,6 +2,8 @@ import React from "react";
 import type { LandscapeContext } from "../../shared/contracts";
 import { clinvarIsQuery, REGIONAL_MAPPING_LIMIT } from "../../shared/landscapeEvidence";
 import { isRegionFeatureType, regionKindOf, regionsAt, REGION_KIND_LABEL, type RegionFeature } from "../../shared/residueRegions";
+import { reviewStarsText } from "../../shared/populationFormat";
+import { formatRegionalOe } from "../../shared/thresholds/calibration";
 
 interface ContextRow {
   label: string;
@@ -49,7 +51,7 @@ function contextRows(ctx: LandscapeContext, position: number, target: { pos: num
     const region = ctx.regions?.find((r) => position >= r.start && position <= r.end);
     if (ctx.regions) out.push({
       label: "Regional O/E",
-      value: region ? `${region.oe ?? "Not reported"} across residues ${region.start}–${region.end}` : "Outside released regional intervals; this does not establish tolerance",
+      value: region ? `${region.oe == null ? "Not reported" : formatRegionalOe(region.oe)} across residues ${region.start}–${region.end}` : "Outside released regional intervals; this does not establish tolerance",
       source: region ? `${ctx.regionsBasis}${region.pValue !== null ? `; p ${region.pValue}` : ""}` : undefined
     });
 
@@ -64,7 +66,7 @@ function contextRows(ctx: LandscapeContext, position: number, target: { pos: num
 function clinvarRow(records: NonNullable<LandscapeContext["clinvar"]>, target: { pos: number | null; mut: string }): ContextRow {
   const own = records.filter(c => clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null));
   const others = records.filter(c => !own.includes(c));
-  const review = (stars: number | null) => stars === null ? 'review stars not reported' : `${stars} review star${stars === 1 ? '' : 's'}`;
+  const review = (stars: number | null) => stars === null ? 'review stars not reported' : reviewStarsText(stars);
   const assertions = [...new Set(own.map(c => c.significance))];
   const details = own.length > 1 ? records : others;
   return {

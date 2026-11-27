@@ -47,17 +47,17 @@ export function ModelPhenotypesCard({ load, diseaseTerms, diseaseName, diseaseKe
           : <>Choose a disease to mark phenotypes that match its HPO terms.</>}
         {data.mapping === 'unavailable' && <span className="ctx-block ctx-caption">The uPheno match table could not be read, so no cross-species matches are shown.</span>}</div>
         {!species.length && <p className="ctx-card__body">No ortholog in a covered organism.</p>}
-        {species.length > 0 && <SpeciesRecordFilter shown={listed.reduce((n, x) => n + x.matched.length + x.other.length, 0)} total={phenotypeTotal} noun="phenotype records" placeholder="Species, symbol or phenotype" overlap={{ available: overlapAvailable }} />}
+        {species.length > 0 && <SpeciesRecordFilter shown={listed.reduce((n, x) => n + x.matched.length + x.other.length, 0)} total={phenotypeTotal} noun="resolved phenotype records" placeholder="Species, symbol or phenotype" overlap={{ available: overlapAvailable }} />}
         {filtering && !listed.length && <p className="ctx-card__body">No phenotype record matches these filters.</p>}
         {listed.map(({ s, matchCount, matched, other }) => { const keyOf = (p: ModelPhenotype) => phenotypeKey(diseaseKey, s.orthologId, p.termId, s.phenotypes.indexOf(p));
           return <details key={s.orthologId} className="ctx-details ctx-details--table" open={matched.length > 0 || (filtering && other.length > 0)}>
-            <summary>{speciesLabel(s.taxonId, s.species)} <span className="ctx-mono">{s.symbol}</span> <span className="ctx-caption">· {s.status === 'error' ? 'could not be read' : `${s.phenotypes.length} displayed / ${s.total} ${s.total === 1 ? 'summary' : 'summaries'}${matchCount ? ` · ${matchCount} match${matchCount === 1 ? '' : 'es'}` : ''}`}</span></summary>
+            <summary>{speciesLabel(s.taxonId, s.species)} <span className="ctx-mono">{s.symbol}</span> <span className="ctx-caption">· {s.status === 'error' ? 'could not be read' : `${s.phenotypes.length} resolved of ${s.total} ${s.total === 1 ? 'summary' : 'summaries'}${matchCount ? ` · ${matchCount} match${matchCount === 1 ? '' : 'es'}` : ''}`}</span></summary>
             {s.status === 'error' ? <p className="ctx-card__body ctx-notice"><span>{ENGINE_STATE_LABELS['upstream-error']} — this ortholog was not read completely.</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></p>
               : !s.total ? <p className="ctx-card__body ctx-caption">No curated phenotype annotation. That is not evidence of a normal organism.</p>
               : <>{s.total > s.phenotypes.length && <p className="ctx-card__body sm-partial-note">{s.total - s.phenotypes.length} {s.total - s.phenotypes.length === 1 ? 'summary has' : 'summaries have'} no resolved phenotype terms in this response. {s.phenotypes.length ? 'The available terms are listed below.' : 'No term details can be displayed; this is not a negative phenotype result.'}</p>}{matched.length > 0 && <Rows rows={matched} terms={diseaseTerms} keyOf={keyOf} />}
                 {other.length > 0 && (matched.length ? <details className="ctx-details ctx-details--table"><summary>Other curated phenotypes ({other.length})</summary><Rows rows={other} terms={diseaseTerms} keyOf={keyOf} /></details> : <Rows rows={other} terms={diseaseTerms} keyOf={keyOf} />)}</>}
           </details>; })}
       </>}
-    <p className="ctx-card__foot">Positive curations only, from allele and genotype records; an empty list means nothing curated. Morpholino and other perturbations carry their own artefact risks. Model phenotypes are not automatically PS3/BS3 and cast no ACMG vote.</p>
+    <p className="ctx-card__foot">Positive curations only, from allele and genotype records; an empty list means no curated term was resolved, not a negative result. Morpholino and other perturbations carry their own artefact risks. This is context only. It does not add or change an ACMG criterion, including PS3 and BS3.</p>
   </section>;
 }

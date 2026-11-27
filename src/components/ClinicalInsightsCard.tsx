@@ -1,6 +1,5 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { memo, useCallback, useEffect, useMemo, useRef } from "react";
-import { deriveConsensus } from "../lib/insightsConsensus";
 export { buildExportVerdictContext, deriveConsensus } from "../lib/insightsConsensus";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
@@ -20,6 +19,10 @@ import {
 import { InsightsScreen } from "./insights/InsightsScreen";
 import { InsightsExportMenu } from "./insights/InsightsExportMenu";
 import { buildInsightsEvidence } from "../shared/insightsEvidence";
+import { stabilityInputFor } from "../shared/insightsSnapshot";
+import { expertPm1Specified, expertPm1StatusOf, type HotspotContext } from "../shared/hotspotEvidence";
+import { hotspotsSlot } from "../shared/evidenceKeys";
+import type { ContextLoad } from "../stores/slices/evidenceContextSlice";
 import { functionEvidenceInputFrom } from "./evidence/function/functionInput";
 import type { EvidenceTabId } from "../shared/insightsEvidence";
 import { VARIANT_PRESETS } from "../data";
@@ -187,21 +190,26 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     }, 80);
   }, [onNavigateToView]);
 
+  // An expert panel's PM1 rule is read from the same hot-spot context the Function tab shows.
+  const hotspotSlot = hotspotsSlot(analysisState.result?.metadata?.gene || gene || null, analysisState.result?.metadata?.uniprotId, analysisState.result?.transcriptId);
+  const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotSlot]) as ContextLoad<HotspotContext> | undefined;
+  const expertPm1 = Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec));
+  const expertPm1Status = expertPm1StatusOf(hotspotLoad);
+
   const insightsEvidence = useMemo(() => {
     const result = analysisState.result;
     if (!result) return null;
-    const consensus = deriveConsensus({ result, foldingEnergetics, foldingDdG, plddt: disruptionPredictor?.plddt, isFolding, foldingStatus });
     return buildInsightsEvidence({
       result,
       functionInput: functionEvidenceInputFrom(result),
-      stability: consensus
-        ? { verdict: consensus.consensusVerdict, enginesCounted: consensus.enginesCounted, enginesDestabilizing: consensus.enginesDestabilizing }
-        : null,
+      stability: stabilityInputFor(result, foldingEnergetics, foldingDdG, { isFolding, foldingStatus }),
       isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
       narrativeDegraded: isFallbackNarrative(result.analysis, result.isFallback, result.fallbackReason),
       deepEnginesNamed: narrativeDeepEvidenceStatus(result, narrativeContext).informative,
+      expertPm1Specified: expertPm1,
+      expertPm1Status,
     });
-  }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, disruptionPredictor?.plddt, isFolding, foldingStatus, narrativeContext]);
+  }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, isFolding, foldingStatus, narrativeContext, expertPm1, expertPm1Status]);
 
   return (
     <div className={`${classCard} ins-shell`} id="clinical-insights-report-card">

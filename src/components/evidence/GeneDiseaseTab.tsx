@@ -10,7 +10,9 @@ import { VariantLocusCard } from './VariantLocusCard';
 import { GeneDiseaseReadings } from './GeneDiseaseReadings';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { evidenceTab } from '../../shared/evidenceTabs';
+import type { DiseaseFrame } from '../../shared/diseaseFrame';
 import { dosageMark } from '../../shared/viewMarks';
+import { formatClinicalDate } from './population/populationFormat';
 
 const SECTIONS = [
   { id: 'validity', label: 'Validity' },
@@ -29,6 +31,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   const { context, model, rows } = useContextWorkspace(result, 'gene-disease');
   const workspace = useEvidenceWorkspace('gene-disease');
   const { verdict, selected } = model;
+  const frames = context.diseaseLoad?.data?.frames ?? [];
   const root = useRef<HTMLDivElement>(null);
   // Set after a first disease choice, so focus moves to the Validity tab that appears.
   const [focusValidityTab, setFocusValidityTab] = useState(false);
@@ -42,12 +45,12 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   }, [focusValidityTab]);
   const dosage = <section className="gd-section" aria-labelledby="gd-dosage-title">
     <div className="gd-section-heading"><h2 id="gd-dosage-title">Gene dosage</h2>
-      <p className="detail-prose">Whole-gene copy-number evidence; independent of disease selection.</p></div>
+      <p className="detail-prose">Whole-gene copy-number evidence. Your disease choice only changes how the curated disease is compared.</p></div>
     {model.dosage.state === 'ready' ? <GeneDiseaseReadings model={model} section="dosage" onRetryDosage={context.retryDosage} />
       : <div className="gd-card gd-state" data-testid="dosage-card"><ContextSourceState name="ClinGen dosage" load={context.dosageLoad} onRetry={context.retryDosage}
         loadingMessage={`Checking ClinGen dosage curation for ${context.gene}. This may take a few moments.`} />
         {/* The source's own message already says no record was found; only the date is new. */}
-        {model.dosage.state === 'not-found' && context.dosageLoad?.data?.provenance && <p className="gd-caption">Source table retrieved {context.dosageLoad.data.provenance.retrievedAt.slice(0, 10)}.</p>}
+        {model.dosage.state === 'not-found' && context.dosageLoad?.data?.provenance && <p className="gd-caption">Source table retrieved {formatClinicalDate(context.dosageLoad.data.provenance.retrievedAt)}.</p>}
       </div>}
   </section>;
   const mechanism = selected && <MechanismContextCard frame={selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} crossCheck={model.crossCheck} />;
@@ -91,6 +94,27 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
         {(section === 'variant' || !workspace.enabled) && variant}
       </div>
     </>}
+    {!selected && frames.length > 0 && <DiseaseList gene={context.gene} frames={frames} />}
     {!selected && dosage}
   </div>;
+}
+
+/** The gene's curated diseases, shown before one is picked so the tab answers "is this gene linked?". */
+function DiseaseList({ gene, frames }: { gene: string; frames: DiseaseFrame[] }) {
+  return <section className="gd-card gd-disease-list" aria-labelledby="gd-disease-list-title">
+    <div className="gd-section-heading"><h2 id="gd-disease-list-title">Curated diseases</h2></div>
+    <div className="gd-table-wrap" tabIndex={0} role="region" aria-label="Curated diseases">
+      <table className="gd-table" aria-label={`Diseases curated for ${gene}`}>
+        <thead><tr><th scope="col">Disease</th><th scope="col">Inheritance</th><th scope="col">GenCC validity</th></tr></thead>
+        <tbody>{frames.map(frame => {
+          const levels = [...new Set(frame.validity.map(a => a.level))];
+          return <tr key={frame.key}>
+            <th scope="row">{frame.label}<span className="gd-caption gd-block gd-mono">{frame.diseaseId}</span></th>
+            <td>{frame.inheritance.label}</td>
+            <td>{levels.length ? levels.join(', ') : <span className="gd-caption">No GenCC assertion</span>}</td>
+          </tr>;
+        })}</tbody>
+      </table>
+    </div>
+  </section>;
 }

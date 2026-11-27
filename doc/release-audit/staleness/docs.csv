@@ -1,0 +1,125 @@
+doc,date,area,refs,missing_paths,missing_identifiers
+doc/ACCOUNTS.md,2026-12-31,infra,16,data/accounts.sqlite;data/agent-bundles;data/analyses.sqlite;data/tool-bundles;deploy/.env.oci;tools/foldx_linux,
+doc/AGENT.md,2026-10-12 (git),infra,10,data/agent-bundles/;data/tool-bundles;data/tool-bundles/foldx/;tools/jre/;tools/p2rank/p2rank_2.6-alpha/prank,
+doc/ALPHAGENOME_STANDBY_RCA_AND_UI_AUDIT.md,2026-09-14,AlphaGenome,115,PerturbationModelCards.tsx;PerturbationTab.tsx;PredictorSpecialistPanels.tsx;concordance.ts;server/services/orchestration/analysis-orchestrator.ts:52-62;server/services/prediction/predictors/vep-orchestrator.ts:277-278;server/services/translation/liftover.ts:140;src/components/EvidenceSidebar.tsx;src/components/PredictorSpecialistPanels.tsx:379;src/components/evidence/AlphaGenomeTab.tsx:348;src/components/inspector/EvidenceInspector.tsx:307;src/components/settings/defaults.ts:58-59;src/shared/assembly.ts:142-148;src/shared/assembly.ts:75;src/shared/contracts.ts:242-246;src/shared/contracts.ts:507;src/shared/engineStatus.ts:307-359;src/shared/splicingEvidence.ts:84-90;src/shared/thresholds/concordance.ts:174-182,aaT;alphagenomeRefusal;ddmutStatus;dynamut2Status;findLegacyLabels;isAssessed;proximityRefusal
+doc/ALPHAGENOME_TAB_REVIEW.md,28 September 2026,AlphaGenome,21,,
+doc/ALPHAGENOME_UI_REVIEW.md,2026-11-01 (git),AlphaGenome,6,,
+doc/API.md,2026-11-24 (git),workspace-wide,77,,
+doc/ARCHITECTURE.md,2026-11-23 (git),workspace-wide,33,data/dbnsfp_v5.sqlite;data/shared_state.sqlite;src/shared/<topic>Evidence.ts,
+doc/CALIBRATED_STACKING.md,2026-09-29 (git),Predictors,7,src/shared/protein_class_calibration.json;src/shared/stacking_config.json;tools/train_stacker.py,
+doc/CHARTING_AND_VISUALIZATION_PLAN.md,13 October 2026,workspace-wide,39,doc/CHARTING_INVENTORY.md;src/components/evidence/perturbation/ResidueDetail.tsx;src/shared/<tab>Evidence.ts;src/shared/perturbationEvidence.ts;src/shared/ticks.ts,ChartConfig;ChartContainer;ReferenceArea;ReferenceLine;ScatterChart;accessibilityLayer
+doc/COMPUTE_BENCHMARK.md,2026-10-11,infra,4,,
+doc/COMPUTE_ROUTING_PLAN.md,2026-10-13,infra,297,"data/accounts.sqlite;data/agent-bundles;data/df_rasp_gnomad_clinvar.sqlite;data/shared_state.sqlite;data/tool-bundles;data/tool-bundles/foldx/<platform>/<version>/;doc/DEPLOYMENT_OCI.md;esm2.ts;esm3_forge.ts;esmc.ts;esmfold.ts;foldingLimits.ts;genos_web.ts;japanfold.ts;saprot.ts;server/agent/*;server/auth/*;server/auth/providers/cloudflare-access.ts;server/auth/{password,sessions,principal,middleware,store}.ts;server/routes/biophysics/{generation,pocket,polling}.ts;server/routes/{auth,admin}.ts;server/services/infra/agent-*.ts;server/services/infra/{cache-registry,cache-scope,stale-response,shared-flight}.ts;server/services/infra/{compute-telemetry,host-probe,failure-class}.ts;server/services/infra/{process-sampler,job-meter}.ts;server/services/structure/esmfold.ts;src/components/account/*;src/shared/foldingLimits.ts;start-agent.sh;tools/foldx_linux;tools/model_server_app/routers/saprot.py",credentialId;nearTieMarginMs;probeHost;registerXRoutes;resolveGpnAccess
+doc/CONTEXT_MOLECULAR_VISUALIZATION_REVIEW.md,14 October 2026,workspace-wide,3,,
+doc/CONTEXT_WORKSPACES_REVIEW.md,10 October 2026,Expression,19,scripts/compute-benchmark.ts:366,perturbationReadings
+doc/DENOVO_FOLD_NOTICE_RCA.md,2026-11-21,Residue shifts / Structure,35,esmfold.ts;folding-engines.ts;server/services/structure/esmfold.ts;server/tests/denovo-fold-timeout-budget.test.ts;src/components/inspector/__tests__/StructureInspectorFoldingLimits.test.tsx;src/shared/__tests__/foldingLimits.test.ts;src/shared/foldingLimits.ts;src/shared/thresholds/*;useStructuralFolding.ts,active3dModelTab;describeDeNovoCapacityNotice;describeDeNovoFoldTimeout;isFoldingLengthLimitError;isFoldingTimeoutError;parseReportedSequenceLength;queryEsmfold2
+doc/DEPLOY.md,2026-11-24 (git),infra,15,data/analyses.sqlite;tools/foldx/;tools/foldx/foldx.cmd;tools/foldx/molecules/,
+doc/EGRESS_AUDIT.md,2026-10-09,infra,225,data/df_rasp_gnomad_clinvar.csv;data/landscape_cache.sqlite;esm3_forge.ts;esmfold.ts;genos_web.ts;japanfold.ts;scripts/import-gencc-context.ts:9;server/routes/biophysics/stability.ts:77;server/routes/structure.ts:481;server/routes/structure.ts:489;server/services/evidence-context/alignment.ts:22;server/services/evidence-context/allianceRelease.ts:19;server/services/evidence-context/clingenDosage.ts:25;server/services/evidence-context/g2p.ts:40;server/services/evidence-context/gencc.ts:29;server/services/evidence-context/gtex.ts:21;server/services/evidence-context/hpa.ts:25;server/services/evidence-context/hpa.ts:31;server/services/evidence-context/hpo.ts:28;server/services/evidence-context/modelOrganisms.ts:34;server/services/evidence-context/modelPhenotypes.ts:26;server/services/evidence-context/modelPhenotypes.ts:52;server/services/evidence-context/pext.ts:19;server/services/external-api/alphagenome-bridge.ts:241;server/services/external-api/alphagenome-bridge.ts:486;server/services/external-api/genos_web.ts:52;server/services/external-api/gpn.ts:232;server/services/external-api/gpn.ts:90;server/services/external-api/japanfold-client.ts:149;server/services/external-api/japanfold-client.ts:183;server/services/external-api/japanfold-client.ts:244;server/services/external-api/japanfold-client.ts:390;server/services/external-api/japanfold-client.ts:466;server/services/external-api/japanfold-client.ts:88;server/services/external-api/japanfold.ts:52;server/services/external-api/japanfold.ts:83;server/services/llm/literature-rag.ts:1072;server/services/llm/literature-rag.ts:605;server/services/llm/literature-rag.ts:627;server/services/llm/literature-rag.ts:694;server/services/stability/energy-models.ts:381;server/services/stability/energy-models.ts:394;server/services/stability/energy-models.ts:545;server/services/stability/energy-models.ts:650;server/services/stability/energy-models.ts:726;server/services/structure/esmfold.ts:117,buildGenosKey;esm3StructureCache;esmfoldCache;fWR;foldSequenceWithProvenance;genosFetch;genosResultCache;gpnCache;japanfoldCache;queryEsmc;queryGenosWebservice;querySaProt;runJapanFoldInference
+doc/ENERGETICS_AUDIT_AND_PLAN.md,2026-10-04,Energetics,209,DEPLOYMENT_OCI.md;consensusVerdict.guard.test.ts;data/df_rasp_gnomad_clinvar.csv;data/df_rasp_gnomad_clinvar.sqlite;doc/DEPLOYMENT_OCI.md;doc/FEATURES.md:71;engineStatus.guard.test.ts;probe-rasp-coverage.mjs;probe-rasp-gap.mjs;scripts/build-rasp-sqlite.ts:88;server/routes/capabilities.ts:99-110;server/services/stability/build-rasp-sqlite.ts:133;server/services/translation/*;server/tests/consensus-single-source.test.ts;src/api/*;src/index.css:21;src/shared/__tests__/consensusVerdict.guard.test.ts;src/shared/contracts.ts:74;stacking_config.json;tools/model_server_app/routers/thermompnn.py:331-336;validate-rasp-parse.mjs;verify-guard.mjs;verify-rasp-index.mjs;verify-verdict-guard.mjs;verify-verdict-negative-control.mjs,MoveFileEx;activeToolsCount;availableCount;calibrateRawScore;classifyDdg;computeCalibratedConsensus;convertEnergy;ddmutStatus;dynamut2Status;findLegacyLabels;formatSignedDdg;getDdGBadge;getResidueContext;getRiskBand;hasValidConsensus;intendedCount;isAsyncOffline;isConsensusVerdictFragment;isConsensusVerdictFragment;isStabilityOraclePending;isThermompnnPending;needsBiophysicsBackfill;normalizeDestabilizationMagnitude;onSkipSlowPredictors;persistAttemptTimestamp;raspSqliteChecked;setSkippedSlowPredictors;useJobPoller
+doc/ENERGETICS_LANDSCAPE_AUDIT_2026-10-27.md,2026-10-27,Energetics,32,deploy/.env.oci,fetchLandscapeData
+doc/ENERGETICS_REPRODUCIBILITY_AND_FOLDX_REPAIR_PLAN.md,2026-11-03,Energetics,66,src/components/energetics/EnergeticsVerdictCard.tsx;tools/foldx/foldx_1_20270131.exe,structureExtent
+doc/ENERGETICS_TAB_REVIEW.md,2026-10-16 (git),Energetics,59,df_rasp_gnomad_clinvar.csv;protein_class_calibration.json;server/services/stability/*;stacking_config.json;tools/train_stacker.py;train_stacker.py;uncertainty.ts,computeCalibratedConsensus;download_datasets
+doc/ENERGETICS_VISUALIZATION_REVIEW.md,9 October 2026,Energetics,8,,
+doc/EVIDENCE_CONTEXT_BASELINE_FIX.md,2026-10-06,workspace-wide,0,,
+doc/EVIDENCE_CONTEXT_IMPLEMENTATION_AUDIT.md,2026-10-06,workspace-wide,0,,
+doc/EVIDENCE_CONTEXT_REVIEW.md,2026-10-06,workspace-wide,7,data/dgtex-context.sqlite;data/dgtex-v1-input/;data/g2p-context.json;data/gencc-context.json,
+doc/EVIDENCE_TABS_FULL_AUDIT.md,2026-10-27,workspace-wide,41,,ContextualCoverage;humaniseAnyRefusal
+doc/EVIDENCE_TOPIC_VIEWS_REVIEW.md,16 October 2026,workspace-wide,5,,
+doc/EVIDENCE_WORKSPACE_REVIEW.md,9 October 2026,workspace-wide,9,,
+doc/EXPLORATION_WORKSPACE.md,2026-11-24 (git),Landscape,12,,
+doc/EXPRESSION_AND_MODELS_PROPOSAL.md,2026-10-07,Expression,2,,
+doc/EXPRESSION_MODELS_EXTERNAL_AUDIT.md,2026-10-06,Expression,21,pext.py,BaselineExpressionRow;CPM;celltypeBiosample;dataProvider;datasourceId;datatypeId;requestDate;tissueBiosample;uberonId
+doc/EXPRESSION_MODELS_TAB_REVIEW.md,2026-10-07,Expression,8,,
+doc/EXPRESSION_POLISH_REVIEW.md,2026-11-04,Expression,0,,
+doc/EXPRESSION_UI_REVIEW.md,2026-11-01 (git),Expression,5,,EvidenceContextTabs
+doc/EXPRESSION_UX_POLISH_REVIEW.md,16 October 2026,Expression,6,,
+doc/FEATURES.md,2026-11-24 (git),workspace-wide,7,tools/model_server_app/routers/esm3.py,
+doc/FOLDX_LOCAL_SHELL_BENCH_2026-11-02.md,2026-11-02,Energetics,30,summary.json;tools/foldx/foldx_1_20270131.exe,getLocalRepairCacheKey;raceTimeout;stabilityoracleTask
+doc/FOLDX_REPAIR_RCA_2026-10-29.md,29 October 2026,Energetics,3,,
+doc/FUNCTIONAL_DOMAINS_PRESENTATION_AUDIT.md,2026-10-04,Functional domains,29,src/components/header/constraintMetrics.ts:183,variantDensity
+doc/FUNCTIONAL_DOMAINS_TAB_AUDIT.md,2026-09-25 (git),Functional domains,64,"FeaturePaletteLegend.tsx;ResidueEnvironmentPanel.tsx;featurePalette.ts;src/components/DevConsolePanel.tsx:517;src/components/DevConsolePanel.tsx:534;src/components/DevConsolePanel.tsx:642;src/components/inspector/FeaturePaletteLegend.tsx;src/components/modals/HowToInspectModal.tsx:46;src/components/modals/StructuralLegendModal.tsx:51;src/shared/featurePalette.ts;tools/function-track-geometry/function-track.png;tools/function-track-geometry/{main.tsx,check.mjs,mutations.mjs}",checkNonTextContrast;checkPositionReadOut;coversResidue;expectedCheckCount;expectedCheckCount;featureGeometryFor;featurePalette;focusOnVariant;handleFeatureSelect;isActiveSite;isBindingSite;isDisulfideSite;isEnclosing;isPtmSite;isRegionFeature;isTransmembraneSite;isXxxSite;planFamilies;runFamily;selectFlank;siteStemAnchors;siteTiers;spanHeight
+doc/FUNCTIONAL_DOMAINS_TAB_REVIEW.md,2026-09-29,Functional domains,28,src/shared/thresholdEvidence.ts;src/shared/thresholds/guidelines.ts;thresholdEvidence.test.ts,domainRowKey;domainRowKeyResolver
+doc/FUNCTIONAL_HOTSPOTS_PLAN.md,2026-10-28,Functional domains,33,server/routes/structure.ts:598;src/styles/interfaces.css:125-138,
+doc/FUTURE_WORK.md,2026-11-24 (git),workspace-wide,7,,AnalyseComplex;PositionScan;PrecomputedOffsetDatabase;esmFoldGlobalCache
+doc/GENE_DISEASE_DOSAGE_RECOVERY_REVIEW.md,16 October 2026,Gene–disease,3,server/services/infra/admission.test.ts:122,
+doc/GENE_DISEASE_EXTERNAL_AUDIT.md,2026-10-06,Gene–disease,23,mondo-crosswalk.json;src/styles/geneDisease.css,exactMatch;selectedDiseaseFrame
+doc/GENE_DISEASE_PROPOSAL.md,2026-10-06,Gene–disease,3,,
+doc/GENE_DISEASE_REFERENCE_REVIEW.md,27 November 2026,Gene–disease,10,,
+doc/GENE_DISEASE_REVIEW.md,2026-10-07,Gene–disease,10,,DosageSensitivityCard
+doc/GENE_DISEASE_SENIOR_CODE_REVIEW.md,16 October 2026,Gene–disease,18,,
+doc/GENE_DISEASE_UX_POLISH_REVIEW.md,16 October 2026,Gene–disease,3,,
+doc/GNOMAD_CONSTRAINT.md,2026-10-29 (git),Population,4,,
+doc/HOTSPOT_3D_DECISION.md,2026-10-28,Functional domains,16,,
+doc/INDEPENDENT_AUDIT_RESPONSE.md,2026-09-30,workspace-wide,35,INDEPENDENT_AUDIT_REPORT.md,JapanFoldBindingResult;queryOpenBind
+doc/INSIGHTS_TAB_REVIEW.md,2026-10-11,Report,12,,
+doc/INSPECTOR_UI_UX_AUDIT.md,2026-09-27 (git),workspace-wide,72,featurePalette.ts;server/routes/variant/narrativeCacheKey.test.ts;src/stores/slices/searchSlice.ts:9-13;tools/*-geometry,clinicalElevation;componentsDir;featurePalette;hsl;narrativeResponseProvenance;onClass;storesDir
+doc/INTERACTIONS_TAB_REVIEW.md,2026-10-03 (git),Interfaces,11,InteractionsTab.tsx,queryOpenBind
+doc/INTERFACES_AUDIT.md,2026-10-02,Interfaces,43,interactionsEvidence.ts;multimerEvidence.ts,MultimerRail;chainsOk;foldingLimits
+doc/INTERFACES_PPI_AUDIT_2026-11-26.md,2026-11-26,Interfaces,65,app.js;partners.ts,AssemblyTable;applyModelFromUrl;jobFromJson
+doc/INTERFACES_PPI_REVIEW.md,2026-10-04,Interfaces,19,,
+doc/IN_SILICO_PRUNING_PLAN.md,2026-11-24,Predictors,44,foldingLimits.ts;job_registry.json;server/routes/biophysics/stability.ts;server/services/prediction/acmg/criteria.ts:256-275;server/services/stability/dynamut.ts;src/shared/thresholds/concordance.ts:112-145,OptionalProviders;RetryDynamut2;useJobPoller
+doc/LANDSCAPE_TAB_AUDIT.md,29 September 2026,Landscape,120,SequenceRowGrid.tsx;doc/LANDSCAPE_TAB_REVIEW.md;src/components/LandscapeMinimap.tsx;src/components/sequence/SequenceRowGrid.tsx;src/shared/nearestResidues.ts:3-5,HoveredResidueInfo;LandscapeMinimap;SequenceRowGrid;landscapeContextCache;landscapeRailTab;landscapeSummary;landscapeSummary;queryLocalDbnsfpLandscape;readsAsSentence;stepSpan;stepSpan
+doc/LANDSCAPE_UI_REVIEW.md,1 November 2026,Landscape,7,RetryDynamut2.test.tsx,ExplorationWorkspace
+doc/LIMITATIONS.md,2026-11-24,workspace-wide,9,data/dbnsfp_v5.sqlite;tools/foldx/,
+doc/LITERATURE_SCREENING_PROPOSAL.md,2026-10-04,Literature,40,doc/LITERATURE_TAB_REVIEW.md:15-19;doc/LITERATURE_TAB_REVIEW.md:36-43;doc/LITERATURE_TAB_REVIEW.md:42-43;doc/LITERATURE_TAB_REVIEW.md:5-7;doc/LITERATURE_TAB_REVIEW.md:75-77;doc/LITERATURE_TAB_REVIEW.md:79-86;narrativeCacheKey.test.ts;src/shared/narrativeSynthesis.ts:66,
+doc/LITERATURE_SCREENING_REVIEW.md,2026-10-05,Literature,11,server/routes/variant/narrativeCacheKey.test.ts,curatedVariantLink
+doc/LITERATURE_SCREENING_UI_PLAN.md,2026-10-05,Literature,16,,
+doc/LITERATURE_TAB_REVIEW.md,2026-10-11,Literature,17,,
+doc/LITERATURE_UPGRADE_PLAN.md,2026-10-06,Literature,0,,
+doc/LOCAL_DBNSFP_UPGRADE.md,2026-07-22 (git),Predictors,3,data/dbnsfp_v5.sqlite,
+doc/MECHANISM_WORKSPACES_REVIEW.md,11 October 2026,Splicing,3,,
+doc/MOLECULAR_WORKSPACES_REVIEW.md,2026-10-10,Residue shifts / Structure,20,ResidueDetail.tsx,hasFocus
+doc/MULTIMER_TAB_REVIEW.md,2026-10-03 (git),Interfaces,7,,
+doc/PDB_RESIDUE_COVERAGE_AUDIT.md,2026-11-26,Interfaces,37,server/routes/biophysics/pocket.ts:237-257;server/services/external-api/ppi.ts:278-291;server/services/structure/structure-fetcher.ts:300-301;server/services/structure/structure-resolver.ts:240;src/components/evidence/function/HotspotsView.tsx:220-226;src/shared/functionEvidence.ts:1010-1021;src/shared/functionEvidence.ts:537;src/shared/functionEvidence.ts:551-555;src/shared/functionEvidenceInput.ts:20;src/shared/hotspotEvidence.ts:502;src/shared/insightsEvidence.ts:558-569;src/shared/interfaces/observed.ts:23;src/shared/interfaces/stored.ts:81;src/shared/mechanismWorkspace.ts:74-86;src/shared/molecularWorkspace.ts:76,
+doc/PERTURBATION_REVIEW.md,2026-09-29,Residue shifts / Structure,39,"PerturbationTab.tsx;esm2.ts;esm3.py;esm3_forge.ts;esmc.ts;modelCalibration.ts;perturbationHelpers.ts;saprot.py;saprot.ts;server/services/external-api/{saprot,esm2,esmc,esm3_forge}.ts;src/shared/perturbationEvidence.ts;src/styles/perturbation.css;tools/model_server_app/routers/*;vesm.py",PerturbationTab;PhysicalPerturbationSection;SaProtLoadingProgressBanner;computeMultiModelLlr;logits;poolFamilies;resolveModelCalibration;resolveServedModel
+doc/PIPELINE_PROGRESS_AUDIT.md,2026-10-22,infra,12,,
+doc/PIPELINE_UPGRADE_VERIFICATION.md,2026-10-02 (git),infra,2,,
+doc/POPULATION_FREQUENCIES_REVIEW.md,9 October 2026,Population,25,,EvidenceSidebar;hasFreq;hasFrequency;maxFreq
+doc/POPULATION_UX_POLISH_REVIEW.md,15 October 2026,Population,7,,
+doc/POPULATION_VISUALIZATION_BATCH_REVIEW.md,14 October 2026,Population,2,,
+doc/POST_REVIEW_FINDINGS_FIXES.md,16 October 2026,Population,8,,
+doc/PRD.md,2026-08-04 (git),workspace-wide,0,,
+doc/PREDICTORS_AVAILABILITY_REVIEW.md,29 October 2026,Predictors,0,,
+doc/PREDICTORS_INFORMATIONAL_UI_REVIEW.md,1 November 2026,Predictors,9,,preferenceCaveat;preferenceSummary
+doc/PREDICTORS_TAB_REVIEW.md,28 September 2026,Predictors,15,concordance.ts,calibratedRow;insilicoVoteOutcome
+doc/PRIMARY_PREDICTOR_DECISION.md,2026-11-24,Predictors,18,chain_comparison.json;data/dbnsfp_v5.sqlite;data/g2p-context.json,
+doc/PROTEIN_LANGUAGE_MODELS_DECISION.md,2026-11-18,Predictors,8,data/df_rasp_gnomad_clinvar.sqlite;offsets.csv,
+doc/QUERY_SYNTHESIS_FINISHING_PASS.md,2026-10-11,Literature,8,src/components/LiteratureView.tsx:497;src/components/VariantSearchPanel.tsx:1215;src/components/insights/InsightsScreen.tsx:135;src/components/inspector/InsightsInspector.tsx:98;src/shared/insightsEvidence.ts:612;src/styles/workspace.css:28,
+doc/QUERY_SYNTHESIS_REVIEW_RESOLUTION.md,2026-10-12,Literature,3,,
+doc/RASP_DATA.md,2026-09-29 (git),Energetics,5,data/df_rasp_gnomad_clinvar.sqlite;df_rasp_gnomad_clinvar.csv,
+doc/README.md,2026-09-30,workspace-wide,1,,
+doc/RELEASE_NOTE_FOLDX_REPAIR_MODE.md,2026-11-05 (git),Energetics,4,,
+doc/RELEASE_NOTE_PREDICTOR_SCALE_FIXES.md,2026-11-23 (git),Predictors,1,,
+doc/RELEASE_NOTE_PRIMARY_PREDICTOR.md,2026-11-24,Predictors,4,,
+doc/REPORT_TAB_REVIEW.md,7 October 2026,Report,1,,
+doc/RESIDUE_SHIFTS_REVIEW.md,2026-09-29,Residue shifts / Structure,22,,PropertyScaleReference
+doc/RESIDUE_SHIFT_REVIEW_RESOLUTION.md,2026-09-25 (git),Residue shifts / Structure,81,LandscapeMinimap.tsx;SequenceRowGrid.tsx;esm3_forge.ts;server/routes/biophysics/polling.ts:315-342;server/services/external-api/esm3_forge.ts;src/components/evidence/ResidueEnvironmentPanel.tsx;src/test/setup.ts:41;tools/function-track-geometry/*,ContrastScale;backfillRemotePredictionToCache;burialBandsSingleSource;metadataSchema
+doc/RESIDUE_TOLERANCE_DECISION.md,2026-10-26,Landscape,18,GeneticTolerance.py;codon_statistics.py;default_settings.py;gene_region_computations.py;helper_functions.py,
+doc/RESOLVER_CONCORDANCE.md,2026-10-17,infra,6,,
+doc/REVIEW_2026-10-29.md,2026-10-29,workspace-wide,72,server/services/evidence-context/*;tests/proof/**,ContextualCoverage
+doc/REVIEW_WORKSPACES_REVIEW.md,2026-10-11,Literature,10,,
+doc/REVIEW_WORKSPACES_SENIOR_CODE_REVIEW.md,2026-10-11,Literature,17,src/components/AppViews.tsx:399;src/components/LiteratureView.tsx:497;src/components/insights/InsightsScreen.tsx:135;src/components/inspector/InsightsInspector.tsx:98;src/components/ui/WorkspaceLayout.tsx:7;src/shared/insightsEvidence.ts:539;src/shared/insightsEvidence.ts:542;src/shared/insightsEvidence.ts:612;src/shared/literatureEvidence.ts:321;src/shared/reviewPresentation.ts:5;src/styles/insights.css:2;src/styles/workspace.css:27,
+doc/SPECIES_MODELS_TAB_REVIEW.md,10 October 2026,Species,10,,
+doc/SPECIES_POLISH_REVIEW.md,2026-11-04 (git),Species,0,,
+doc/SPLICING_LAYOUT_REVIEW.md,2026-10-29 (git),Splicing,0,,
+doc/SPLICING_TAB_REVIEW.md,28 September 2026,Splicing,34,splicingTab.schematic.test.tsx,
+doc/SPLICING_WORKSPACE_REVIEW.md,2026-10-11,Splicing,8,,
+doc/STABILITY_ORACLE_COMPARISON_PROTOCOL.md,2026-11-24,Energetics,9,data/df_rasp_gnomad_clinvar.sqlite,
+doc/STABILITY_ORACLE_INPUTS_RESEARCH.md,2026-11-05,Energetics,12,...-whole-file.csv,
+doc/STATE_MACHINES.md,2026-11-06,infra,174,server/auth/*,
+doc/STREAM_AND_FOLDX_LATENCY_RCA.md,2026-09-28 (git),infra,56,,reportedAt
+doc/STRUCTURAL_PERTURBATION_RESOLUTION.md,2026-10-29,Residue shifts / Structure,18,server/services/external-api/esm2.ts;tools/model_server_app/routers/esm2.py,InvalidProviderResponse;PerturbationRail;PerturbationTab;ResidueDetail;deduplicateServedModels;parseShiftWindow;perturbationEvidence;perturbationModels
+doc/STRUCTURE3D_TAB_REVIEW_2026-11-05.md,2026-11-05,Residue shifts / Structure,82,"src/components/AppViews.tsx:237-239,359-365;src/components/MolstarViewer.tsx:216,243-252;src/components/MolstarViewer.tsx:217,233-234;src/components/MolstarViewer.tsx:313-316;src/components/__tests__/Structure3dView.test.tsx:325-408;src/components/inspector/StructureInspector.tsx:180,194-205;src/components/inspector/StructureInspector.tsx:191-207;src/components/inspector/StructureInspector.tsx:200;src/components/inspector/ViewInspector.tsx:511-515;src/components/molstar/StructureGuideCard.tsx:118-147;src/components/molstar/StructureGuideCard.tsx:79-88;src/components/molstar/StructureToolbar.tsx:51;src/components/molstar/__tests__/StructureGuideCard.test.tsx:75-128;src/components/molstar/useMolstarStructure.ts:250-256,269,416,443,743;src/components/molstar/useMolstarStructure.ts:608,709;src/shared/structure3dEvidence.ts:1005-1008,1534-1536;src/shared/structure3dEvidence.ts:1192;src/shared/structure3dEvidence.ts:952-953;src/shared/structureSelection.ts:34;src/shared/structureSelection.ts:34,45-54;src/styles/molstar.css:16-30;src/styles/structure3d.css:344;src/styles/structure3d.css:401-404,834-835;src/styles/structure3d.css:79-83;src/styles/structure3d.css:814-823;src/styles/structure3d.css:828-834;src/styles/structure3d.css:84-117;src/styles/structure3d.css:877-888",measuredScope;pairLabels
+doc/STRUCTURE_3D_REVIEW.md,29 September 2026,Residue shifts / Structure,83,esm3_forge.ts;foldingLimits.ts;structural-model-fetcher.ts,MolstarInfoOverlay;MolstarToolbar;StructuralLegendModal;compareFoldAbortRef;compareMode;compareMutantPdb;computeCalibratedConsensus;esmfoldCache;isCompare;rewritePdbCoordinates;useMolstarPocket;useStructuralFolding
+doc/SYNTHESIS_WORKSPACES_REVIEW.md,18 October 2026,Report,5,,
+doc/THRESHOLDS_TAB_REVIEW.md,29 September 2026,Predictors,9,thresholdEvidence.ts,isPp2Constrained
+doc/TISSUE_EXPRESSION_PROPOSAL.md,2026-10-05,Expression,23,server/services/external-api/alphagenome-client.ts:93-112;server/services/external-api/gnomad.ts:245-292;server/services/prediction/acmg/criteria.ts:352-429;src/components/inspector/AlphaGenomeRail.tsx:165-168;src/shared/engineStatus.ts:68;tissueEvidence.test.ts,
+doc/TRANSLATIONAL_COVERAGE.md,30 October 2026,workspace-wide,11,,
+doc/TRANSLATIONAL_PHILOSOPHY.md,13 October 2026,workspace-wide,2,design_philosophy.md,
+doc/UNMAPPING_DEFECT_SPLICE_AUDIT.md,2026-09-19,Splicing,84,PredictorSpecialistPanels.tsx;SplicingInspector.tsx;data/analyses.sqlite;data/dbnsfp_v5.sqlite;server/services/prediction/predictors/vep-orchestrator.ts:152-170;src/components/inspector/SplicingInspector.tsx:302-309,aaT;alphagenomeRefusal;dbscFlankMeasurable;dbscLabel;isExactMatch;proximityRefusal;targetFields
+doc/VARIANT_QUERY_AND_PIPELINE_AUDIT_PLAN.md,2026-10-16,workspace-wide,124,data/dbnsfp_v5.sqlite;deploy/.env.oci;df_rasp_gnomad_clinvar.csv;server/routes/health.ts#L194;server/tests/*.test.ts;src/components/energetics/*;src/components/evidence/*;src/components/inspector/*;src/shared/workflowStatus.ts#L48-L95;src/tests/VariantSearchPanel*.test.tsx;src/tests/variantNotation.test.ts;tools/foldx,agServerOffline;checkBox64;checkBox64;hasRotabase;isBareCdna;modelItems;queryEnsemblVepHgvs;referenceOpen;renderServiceRow;resolveCoordinateNotation;resolveFromVepConsequences;serviceItems;uniprotBadgeNode
+doc/VERIFIED_RESIDUE_DESIGN.md,2026-11-24,Residue shifts / Structure,52,,ResidueSet;decideAcrossResidues;verifyPositionProof
+doc/VISUALIZATION_SYSTEM.md,2026-10-14 (git),workspace-wide,4,,
+doc/VISUAL_STORYTELLING_REVIEW.md,13 October 2026,workspace-wide,10,,ReferenceRow;VoteRow
+doc/WORKSPACE_REDESIGN.md,2026-11-05 (git),workspace-wide,5,,
+doc/multimer_modeling_proposal.md,2026-08-14 (git),Interfaces,15,tools/model_server_app/routers/multimer.py,AnalyseComplex

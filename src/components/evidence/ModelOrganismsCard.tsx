@@ -19,7 +19,7 @@ function OrthologTable({ groups }: { groups: Array<ReturnType<typeof buildModelE
       {i === 0 && <th scope="row" rowSpan={g.rows.length}>{g.species}{g.oneToMany && <span className="ctx-caption ctx-block">{g.total} orthologs</span>}</th>}
       <td><InspectReadingButton tab="species-models" readingKey={orthologKey(o.taxonId, o.id)}><span className="ctx-mono">{o.symbol}</span></InspectReadingButton><span className="ctx-caption ctx-block ctx-mono">{o.id}</span></td>
       <td>{matchLabel(o)}{o.confidence && <span className="ctx-caption ctx-block">{o.confidence[0].toUpperCase() + o.confidence.slice(1)} confidence</span>}</td>
-      <td className="ctx-num ctx-mono">{o.methodCount}</td>
+      <td className="ctx-num ctx-mono">{o.methodCount} {o.methodCount === 1 ? 'method' : 'methods'}</td>
     </tr>))}</tbody>
   </table></div>;
 }
@@ -57,6 +57,6 @@ export function ModelOrganismsCard({ load, systems, onRetry }: { load?: ContextL
           {screen.phenotypingDataAvailable === true && <MouseScreenPlot screen={screen} systems={systems} />}
         </div>)}
       </>}
-    <p className="ctx-card__foot">Orthology is predicted, not proof of equal function. Mouse and other model phenotypes are context only: they are not automatically PS3/BS3 and cast no ACMG vote.</p>
+    <p className="ctx-card__foot">Orthology is predicted, not proof of equal function. This is context only. It does not add or change an ACMG criterion, including PS3 and BS3.</p>
   </section>;
 }

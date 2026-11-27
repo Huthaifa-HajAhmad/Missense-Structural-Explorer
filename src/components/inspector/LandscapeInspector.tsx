@@ -22,7 +22,8 @@ import {
   residueRange,
   TOOL_DISPLAY,
   type LandscapeTool,
-  type SummaryMode
+  type SummaryMode,
+  withholdRegionalWhenRunDid
 } from "../../shared/landscapeEvidence";
 interface LandscapeInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -264,7 +265,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                     <div className="text-[11px] italic text-cs-text-muted">No residue scores are loaded for residue {activeResIndex}.</div>
                   )}
 
-                  <LandscapeLocalContext context={overview?.data?.context ?? null}
+                  <LandscapeLocalContext context={withholdRegionalWhenRunDid(overview?.data?.context ?? null, analysisResult?.gnomadConstraint?.regionalStatus)}
                     features={analysisResult?.uniprotFeatures?.features}
                     position={activeResIndex} target={target} />
                 </>

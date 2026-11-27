@@ -473,7 +473,7 @@ export function buildPredictorEvidence({ result, isLoading = false, alphagenomeC
       },
       signal,
       calibrated: null,
-      callLabel: signal === "pathogenic" ? (popeve !== null && popeve <= THRESHOLDS.popEve.severePathogenic ? "Highly deleterious" : "Deleterious") : signal === "vus" ? "Above cut-point" : NO_RESULT,
+      callLabel: signal === "pathogenic" ? (popeve !== null && popeve <= THRESHOLDS.popEve.severePathogenic ? "Highly deleterious" : "Deleterious") : signal === "vus" ? `Not deleterious (above ${THRESHOLDS.popEve.pathogenic.toFixed(3).replace("-", "−")})` : NO_RESULT,
       callTone: signal === "pathogenic" ? "danger" : signal === "vus" ? "neutral" : "muted",
       caveats: popSource?.match === "other-isoform" ? ["no-benign-cut", "other-isoform"] : ["no-benign-cut"],
       note: popSource?.match === "other-isoform" && scoredOn
@@ -673,13 +673,15 @@ export function informationalSummary(evidence: PredictorEvidence): Informational
     .map(group => {
       const readings = evidence.readings.filter(r => r.group === group);
       const scored = readings.filter(r => r.score !== null).length;
-      const withCall = readings.filter(r => r.score !== null && r.calibrated !== null).length;
+      // A cut-point counts when the reading draws one, even if only the authors publish it (popEVE).
+      const withCut = readings.filter(r => r.score !== null && r.cutpoints.bands.length + r.cutpoints.marks.length > 0);
+      const oneSided = withCut.every(r => r.cutpoints.bands.length === 0);
       const tail =
         scored === 0
           ? "no score reached this variant"
-          : withCall === 0
+          : withCut.length === 0
             ? "none has a published cut-point, so none makes a call"
-            : `${withCall} ${withCall === 1 ? "has" : "have"} a published cut-point`;
+            : `${withCut.length} ${withCut.length === 1 ? "has" : "have"} a published cut-point${oneSided ? " (deleterious side only)" : ""}`;
       return {
         group,
         label: PREDICTOR_GROUP_LABEL[group],
@@ -731,6 +733,26 @@ export function isReadingParticipatingInRule(
     }
   }
   return reading.chainKey !== null;
+}
+
+/**
+ * The one status a predictor carries on every screen and in the Report. It says whether the tool set
+ * the PP3/BP4 call, was passed over for an earlier tool, or is shown for context only.
+ */
+export function predictorUseLabel(reading: PredictorReading, primary: PrimaryInsilicoDecision): string {
+  const toolKey = reading.chainKey ?? (reading.key === "cadd" ? "cadd" : null);
+  if (toolKey === null || !isReadingParticipatingInRule(reading, primary)) {
+    return reading.calibrated !== null ? "Published band, not counted" : "Context only, not counted";
+  }
+  // SpliceAI can take the call over; the tool that answered for missense is then the first with a score.
+  const answering = primary.activeTool !== null && primary.activeTool !== "spliceai"
+    ? primary.activeTool
+    : primary.chain.find(e => e.score !== null && e.call !== null)?.key ?? null;
+  if (toolKey === answering) {
+    return primary.activeTool === toolKey && primary.code !== null ? "Sets PP3/BP4" : "Answered, does not set PP3/BP4";
+  }
+  if (reading.score === null) return "Calibrated, no score";
+  return answering === null ? "Calibrated, not used" : "Calibrated, not used (an earlier tool answered)";
 }
 
 export function localPredictorAgreement(evidence: PredictorEvidence) {

@@ -133,8 +133,24 @@ function entryMatchesQueriedGene(
 }
 
 function getCodingNotation(title: string): string | null {
-  const match = title.match(/(c\.[^\s(]+)/i);
+  const match = title.match(/(c\.[^\s()]+)/i);
   return match ? match[1].toLowerCase() : null;
+}
+
+/** Extract transcript accession (full and unversioned base) from a query or ClinVar title, ignoring `(GENE)`. */
+function getTranscriptAccession(text: string): { full: string; base: string } | null {
+  const match = text.match(/\b((?:NM|XM|ENST)\_?\d+(?:\.\d+)?)\b/i);
+  if (!match) return null;
+  const full = match[1].toUpperCase();
+  const base = full.replace(/\.\d+$/, "");
+  return { full, base };
+}
+
+/** Canonical GRCh38 SPDI strings on a ClinVar summary entry, for comparing distinct genomic alleles. */
+function canonicalSpdisOf(entry: { variation_set?: Array<{ canonical_spdi?: string }> }): string[] {
+  return (entry.variation_set ?? [])
+    .map(v => v.canonical_spdi?.trim().toUpperCase())
+    .filter((s): s is string => Boolean(s));
 }
 
 export async function fetchClinVarData(
@@ -305,9 +321,30 @@ export async function fetchClinVarData(
   }
 
   // Selecting this allele requires a verified match. Other protein matches remain available for PS1.
-  const alleleEntries = alleleCoordinate
+  const queryCodingNotation = options.originalNotation ? getCodingNotation(options.originalNotation) : null;
+  const queryTranscript = options.originalNotation ? getTranscriptAccession(options.originalNotation) : null;
+
+  let alleleEntries = alleleCoordinate
     ? matchingEntries.filter(({ entry }) => entryDescribesAllele(entry, alleleCoordinate) === true)
     : matchingEntries;
+
+  // When no GRCh38 coordinate was supplied but the user gave an explicit coding allele (with or
+  // without a transcript accession like `NM_000546.6:c.396G>C`), bind to records matching that
+  // coding allele (and transcript, ignoring ClinVar's `(GENE)` insertion) rather than falling back
+  // to an arbitrary protein match at index 0.
+  if (!alleleCoordinate && queryCodingNotation) {
+    const codingMatches = alleleEntries.filter(m => getCodingNotation(m.cleanTitle) === queryCodingNotation);
+    if (queryTranscript) {
+      // If the user supplied an explicit transcript version (e.g. NM_000546.6), require an exact
+      // version match rather than silently binding to another transcript version.
+      alleleEntries = queryTranscript.full.includes(".")
+        ? codingMatches.filter(m => getTranscriptAccession(m.cleanTitle)?.full === queryTranscript.full)
+        : codingMatches.filter(m => getTranscriptAccession(m.cleanTitle)?.base === queryTranscript.base);
+    } else {
+      alleleEntries = codingMatches;
+    }
+  }
+
   if (alleleEntries.length === 0) {
     (options.l1Cache ?? clinvarCache).set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
     return defaultRes;
@@ -331,17 +368,37 @@ export async function fetchClinVarData(
   const { id: matchedId, entry: matchedEntry } = alleleEntries[matchedIdx];
   const matchedTitle = alleleEntries[matchedIdx].cleanTitle;
   const matchedC = getCodingNotation(matchedTitle);
+  const matchedTx = getTranscriptAccession(matchedTitle);
+  const matchedSpdis = canonicalSpdisOf(matchedEntry);
 
-  // Check if there is another entry that is pathogenic/likely pathogenic
+  // PS1 asserts a DIFFERENT nucleotide change causing the same amino acid change. Without a verified
+  // GRCh38 coordinate or an explicit coding notation in the query matching the selected ClinVar entry,
+  // a protein-only lookup picks alleleEntries[0] arbitrarily and cannot establish that another ClinVar
+  // entry has a different nucleotide change from the queried allele (TP53 p.Lys132Asn audit blocker).
+  const queryAlleleVerifiedForPs1 = Boolean(
+    alleleCoordinate || (queryCodingNotation && matchedC && queryCodingNotation === matchedC)
+  );
   let hasOtherPathogenicVariantSameAA = false;
-  for (let i = 0; i < matchingEntries.length; i++) {
-    if (matchingEntries[i].id === matchedId) continue;
-    // PS1 needs an established P/LP record; "Conflicting … pathogenicity" is not one.
-    if (classifyClinvar(matchingEntries[i].entry.germline_classification?.description) === "plp") {
-      const otherC = getCodingNotation(matchingEntries[i].cleanTitle);
-      if (matchedC && otherC && matchedC !== otherC) {
-        hasOtherPathogenicVariantSameAA = true;
-        break;
+  if (queryAlleleVerifiedForPs1 && matchedC) {
+    for (let i = 0; i < matchingEntries.length; i++) {
+      if (matchingEntries[i].id === matchedId) continue;
+      // PS1 needs an established P/LP record; "Conflicting … pathogenicity" is not one.
+      if (classifyClinvar(matchingEntries[i].entry.germline_classification?.description) === "plp") {
+        const otherC = getCodingNotation(matchingEntries[i].cleanTitle);
+        if (!otherC || matchedC === otherC) continue;
+        // Guard against comparing coding coordinates without a verified shared transcript version
+        // unless canonical genomic SPDIs independently confirm distinct alleles.
+        const otherTx = getTranscriptAccession(matchingEntries[i].cleanTitle);
+        const otherSpdis = canonicalSpdisOf(matchingEntries[i].entry);
+        const spdisConfirmDistinct = matchedSpdis.length > 0 && otherSpdis.length > 0 &&
+          !matchedSpdis.some(s => otherSpdis.includes(s));
+        const sameTranscript = Boolean(
+          matchedTx && otherTx && matchedTx.full.includes(".") && matchedTx.full === otherTx.full
+        );
+        if (sameTranscript || spdisConfirmDistinct) {
+          hasOtherPathogenicVariantSameAA = true;
+          break;
+        }
       }
     }
   }

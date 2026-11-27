@@ -5,7 +5,8 @@
  * and the old verdict badge listed both.
  */
 import { describe, expect, it } from "vitest";
-import { buildInsightsEvidence, computeTierGap, tierIndexOf } from "../insightsEvidence";
+import { buildInsightsEvidence, computeTierGap, runStatusOf, tierIndexOf, TIER_SCOPE_SENTENCE } from "../insightsEvidence";
+import { BS2_NOT_APPLIED_REASON } from "../frequencyRule";
 
 const functionInput = { residue: 116, uniprot: null, serviceStatus: "ok" } as any;
 
@@ -44,7 +45,7 @@ describe("buildInsightsEvidence", () => {
     result.ruleBasedInsights.acmgCriteria.push({ code: 'PM2', reason: 'Recorded rarity' });
     const model = buildInsightsEvidence({ result, functionInput, stability: null });
     expect(model.engineCodes.map(c => c.code)).toEqual(['PP3', 'PM2']);
-    expect(model.finding.rest).toContain('2 criteria: PP3, PM2');
+    expect(model.finding.rest).toContain('Counted: PP3 Supporting, PM2 Supporting.');
     expect(model.criteria.find(c => c.code === 'PM2')?.state).toBe('met');
     expect(model.lanes.find(l => l.key === 'population')?.counted).toBe(true);
     expect(model.droppedEngineOwned.some(c => c.code === 'PM2')).toBe(false);
@@ -102,7 +103,7 @@ describe("buildInsightsEvidence", () => {
 
   it("states which calibrated tool gave the call, in words", () => {
     const c = ev.lanes.find(l => l.key === "computational")!;
-    expect(c.lead).toContain("REVEL 0.231, the first calibrated tool with a score, gives BP4");
+    expect(c.lead).toContain("REVEL is the first tool in the standard order that has a score. It gives BP4");
     // NAE1's saved record is PP3 from the retired vote; the lane says the record is out of date.
     expect(c.rest).toContain("differs from the current rule");
     expect(ev.differ.map(d => d.text).join(" ")).toContain("Only one evidence area is counted");
@@ -183,9 +184,9 @@ describe("consolidated fields a report can reuse", () => {
   const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
 
   it("words the finding once", () => {
-    expect(ev.finding.headline).toBe("Not enough evidence either way yet.");
+    expect(ev.finding.headline).toBe("Automated tier: uncertain significance.");
     expect(ev.finding.rest).toBe(
-      "The engine counted 1 criterion: PP3. The model proposed PS3, which the engine cannot compute, so it is not counted."
+      "Counted: PP3 Supporting. The model proposed PS3, which the engine cannot compute, so it is not counted."
     );
   });
 
@@ -335,4 +336,220 @@ describe("buildInsightsEvidence — the Assembly lane says when no structure mod
     const lane = buildInsightsEvidence({ result, functionInput, stability: null }).lanes.find(l => l.key === "assembly")!;
     expect(lane.rest).toBe("Gly358 is not modelled in any of the 5 solved structures, so they cannot place it. The engine does not read assembly.");
   });
+});
+
+describe("summary wording and run completeness (release audit FB1)", () => {
+  const withoutGnomad = () => nae1({ gnomadFrequency: { exomeAF: null, exomeAC: null, exomeAN: null }, serviceStatus: { gnomadFrequency: "ok" } });
+
+  it("states the automated tier with the criteria that counted, not 'not enough evidence'", () => {
+    const model = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
+    expect(model.finding.headline).toBe("Automated tier: uncertain significance.");
+    expect(model.finding.rest).toMatch(/^Counted: PP3/);
+    expect(model.finding.rest).not.toContain("Not enough evidence");
+  });
+
+  it("says no criterion counted when the engine recorded none", () => {
+    const result = nae1();
+    result.ruleBasedInsights.acmgCriteria = [];
+    result.insights.acmgCriteria = [];
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(model.finding.headline).toBe("Automated tier: uncertain significance.");
+    expect(model.finding.rest).toBe("No criterion counted.");
+  });
+
+  it("gives the scope sentence once as a constant the screens share", () => {
+    expect(TIER_SCOPE_SENTENCE).toBe(
+      "This tier counts only the criteria the app computes: population frequency, in-silico predictors, regional constraint and protein-domain context. ClinVar assertions are not counted as PP5/BP6; ClinVar is checked only for same-amino-acid PS1 comparators, conservative weighting and fallback allele frequency when gnomAD has no reading. This tier does not include case, segregation, functional or patient phenotype evidence.",
+    );
+  });
+
+  it("holds Protein function pending while ClinGen CSpec PM1 applicability is loading, and discloses unavailability when CSpec fails", () => {
+    const fnWithUniprot = { residue: 116, uniprot: { features: [] }, serviceStatus: "ok" } as any;
+    const loading = buildInsightsEvidence({ result: nae1(), functionInput: fnWithUniprot, stability: null, expertPm1Status: "loading" });
+    const fnLoading = loading.lanes.find(l => l.key === "function")!;
+    expect(fnLoading.state).toBe("pending");
+    expect(fnLoading.lead).toMatch(/Checking ClinGen CSpec/i);
+
+    const unavailable = buildInsightsEvidence({ result: nae1(), functionInput: fnWithUniprot, stability: null, expertPm1Status: "unavailable" });
+    const fnUnavailable = unavailable.lanes.find(l => l.key === "function")!;
+    expect(fnUnavailable.state).toBe("read");
+    expect(fnUnavailable.rest).toMatch(/ClinGen CSpec could not be read/i);
+  });
+
+  it("names only the genome-wide scores that came back", () => {
+    const model = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
+    const lead = model.lanes.find(l => l.key === "language-models")!.lead;
+    expect(lead.startsWith("1 genome-wide score (CADD) returned")).toBe(true);
+    expect(lead).not.toContain("AlphaGenome");
+  });
+
+  it("marks stability as still running and says the count may change while an engine is provisional", () => {
+    const model = buildInsightsEvidence({
+      result: nae1(),
+      functionInput,
+      stability: { verdict: "Destabilising", enginesCounted: 3, enginesDestabilizing: 0, provisional: true },
+    });
+    const lane = model.lanes.find(l => l.key === "stability")!;
+    expect(lane.state).toBe("pending");
+    expect(lane.lead).toContain("so far");
+    expect(lane.rest).toContain("may change");
+    expect(lane.lead).toContain("past their local destabilising mark");
+    expect(lane.lead).not.toContain("predict destabilisation");
+  });
+
+  it("tags each lane's name as counted or not counted, so no tag is left to read as covering the names before it", () => {
+    const result = nae1({ gnomadFrequency: { exomeAF: 0.000001, exomeAC: 1, exomeAN: 1000000, groupMaxAF: 0.000001 }, serviceStatus: { gnomadFrequency: "ok" } });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    const agree = model.agree.map(a => a.text).join(" ");
+    expect(agree).toContain("Computational (counted), Population (not counted) and Genome-wide scores (not counted)");
+  });
+
+  it("names the population frequency criterion the BS2 reason when it is read", () => {
+    const result = nae1({ gnomadFrequency: { exomeAF: 0.000001, exomeAC: 1, exomeAN: 1000000, groupMaxAF: 0.000001 }, serviceStatus: { gnomadFrequency: "ok" } });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(model.lanes.find(l => l.key === "population")!.rest).toContain(BS2_NOT_APPLIED_REASON);
+  });
+
+  it("reports the run as running while a lane is still pending", () => {
+    const model = buildInsightsEvidence({ result: nae1(), functionInput, stability: null, isLoading: true });
+    expect(runStatusOf(model).state).toBe("running");
+    expect(runStatusOf(model).running.length).toBeGreaterThan(0);
+  });
+
+  it("reports gaps, with the area and the withheld criterion, for an ABCG1-like run with no frequency read", () => {
+    const model = buildInsightsEvidence({ result: withoutGnomad(), functionInput: { ...functionInput, serviceStatus: "error" }, stability: null });
+    const status = runStatusOf(model);
+    expect(status.state).toBe("gaps");
+    expect(status.running).toEqual([]);
+    expect(status.gaps).toContain("Population (not assessed)");
+    expect(status.gaps).toContain("Splicing (not assessed)");
+  });
+
+  it("reports complete only when no lane is pending or absent and no criterion is withheld", () => {
+    const model = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
+    const allRead = { ...model, lanes: model.lanes.map(l => ({ ...l, state: "read" as const })), criteria: model.criteria.map(c => (c.state === "withheld" ? { ...c, state: "not met" as const } : c)) };
+    expect(runStatusOf(allRead)).toEqual({ state: "complete", running: [], gaps: [] });
+  });
+});
+
+describe("BP4 when the predictor scores never finished (release audit FB1)", () => {
+  it("shows BP4 as withheld, not 'Not met', because the engine never tested it", () => {
+    // PTEN's ClinGen rule needs REVEL or BayesDel, and the base predictor lookup is still pending.
+    const result = nae1({
+      metadata: { gene: "PTEN", variant: "p.Asp116Gly", acmgWeighting: "standard" },
+      predictorData: {},
+      conservationData: { modelStatus: { base: "pending" } },
+    });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    const bp4 = model.criteria.find(c => c.code === "BP4");
+    expect(bp4?.state).toBe("withheld");
+    expect(bp4?.reason).toContain("did not finish");
+  });
+});
+
+describe("buildInsightsEvidence: run state and withheld readings (release fix FC-a)", () => {
+  const stable = { verdict: "Destabilizing (Engines Agree)", enginesCounted: 2, enginesDestabilizing: 2 };
+
+  it("reads a stability count as provisional, and names the engine still running", () => {
+    const model = buildInsightsEvidence({
+      result: nae1(), functionInput, stability: { ...stable, provisional: true, runningEngines: ["FoldX"] },
+    });
+    const lane = model.lanes.find(l => l.key === "stability")!;
+    expect(lane.state).toBe("pending");
+    expect(lane.lead).toContain("so far");
+    expect(lane.rest).toContain("FoldX is still running");
+    expect(runStatusOf(model).running).toContain("Stability");
+  });
+
+  it("says a stability conclusion is withheld, not a direction, when the engines withhold it", () => {
+    const withheldText = "No stability conclusion: AlphaFold's confidence at this residue is very low (pLDDT 20.0), so the coordinates the estimates use are unreliable.";
+    const model = buildInsightsEvidence({ result: nae1(), functionInput, stability: { ...stable, withheldText } });
+    const lane = model.lanes.find(l => l.key === "stability")!;
+    expect(lane.lead).toBe(withheldText);
+    expect(lane.lead).not.toMatch(/destabilis/i);
+  });
+
+  it("says no splicing check was made when the splice geometry was refused", () => {
+    const result = nae1({
+      conservationData: { assemblyRefusals: [{ source: "splice-proximity", reason: "no exact DNA change was established" }] },
+    });
+    const lane = buildInsightsEvidence({ result, functionInput, stability: null }).lanes.find(l => l.key === "splicing")!;
+    expect(lane.rest).toBe("No splicing check was made, because no exact DNA change was established. BP4 is withheld for that reason.");
+    expect(lane.rest).not.toMatch(/until SpliceAI has answered/);
+  });
+
+  it("marks protein function as not available, not running, when the feature table did not load", () => {
+    const lane = buildInsightsEvidence({ result: nae1(), functionInput: { residue: 116, uniprot: null, serviceStatus: "ok" } as any, stability: null })
+      .lanes.find(l => l.key === "function")!;
+    expect(lane.state).toBe("absent");
+  });
+
+  it("keeps protein function running while the feature read is still in flight", () => {
+    const model = buildInsightsEvidence({
+      result: nae1(), functionInput: { residue: 116, uniprot: null, serviceStatus: "pending" } as any, stability: null, isLoading: true,
+    });
+    expect(model.lanes.find(l => l.key === "function")!.state).toBe("pending");
+  });
+
+  it("names the expert panel's PM1 specification instead of 'PM1 not met'", () => {
+    const uniprot = { features: [], sequenceLength: 300 } as any;
+    const lane = buildInsightsEvidence({
+      result: nae1(), functionInput: { residue: 116, uniprot, serviceStatus: "ok" } as any, stability: null, expertPm1Specified: true,
+    }).lanes.find(l => l.key === "function")!;
+    expect(lane.lead).toBe("PM1 not assessed — the expert panel's PM1 specification applies.");
+  });
+
+  it("does not name tools that returned no genome-wide score", () => {
+    const result = nae1({ predictorData: { source: "Ensembl VEP" }, conservationData: { revel: 0.231 } });
+    const lane = buildInsightsEvidence({ result, functionInput, stability: null }).lanes.find(l => l.key === "language-models")!;
+    expect(lane.name).toBe("Genome-wide scores");
+    expect(lane.lead).not.toMatch(/CADD|AlphaGenome/);
+  });
+
+  it("explains the first scored tool in plain words, with the standard order", () => {
+    const result = nae1({ predictorData: { caddPhred: 26.3, source: "Ensembl VEP" }, conservationData: { revel: 0.922 } });
+    const lane = buildInsightsEvidence({ result, functionInput, stability: null }).lanes.find(l => l.key === "computational")!;
+    expect(lane.lead).toBe("REVEL is the first tool in the standard order that has a score. It gives PP3 Moderate.");
+  });
+});
+
+
+describe("stability moderate counts", () => {
+  it.each([
+    [1, 1, false],
+    [0, 2, false],
+    [0, 2, true],
+  ])("shows %i past the mark and %i moderate (provisional: %s)", (destabilizing, moderate, provisional) => {
+    const model = buildInsightsEvidence({ result: nae1(), functionInput, stability: {
+      verdict: "Destabilising", enginesCounted: 3, enginesDestabilizing: destabilizing,
+      enginesModerate: moderate, provisional,
+    } });
+    const lane = model.lanes.find(l => l.key === "stability")!;
+    expect(lane.lead).toContain(`${destabilizing} of 3 stability engines past their local destabilising mark`);
+    expect(lane.lead).toContain(`; ${moderate} in the moderately destabilising band.`);
+    expect(lane.state).toBe(provisional ? "pending" : "read");
+    if (provisional) expect(lane.lead).toContain("so far");
+  });
+
+  it("keeps withheld conclusions instead of moderate counts", () => {
+    const lane = buildInsightsEvidence({ result: nae1(), functionInput, stability: {
+      verdict: "Destabilising", enginesCounted: 3, enginesDestabilizing: 1,
+      enginesModerate: 2, withheldText: "No stability conclusion: coordinates are unreliable.",
+    } }).lanes.find(l => l.key === "stability")!;
+    expect(lane.lead).toBe("No stability conclusion: coordinates are unreliable.");
+  });
+});
+
+it("names analysis when loading has no pending lane", () => {
+ const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
+ ev.pending = true;
+ ev.lanes = ev.lanes.map(l => ({ ...l, state: "read" }));
+ expect(runStatusOf(ev).running).toEqual(["analysis in progress"]);
+});
+it("keeps peptide-only contacts apart from native whole-protein interfaces", async () => {
+ const { ABCG1_INTERFACES: F } = await import("./fixtures/abcg1Interfaces");
+ const assembly = structuredClone(F.assembly) as any;
+ assembly.experimental.partners = [{ accession: "PEPTIDE", gene: "ABCG1", context: "peptide", pdbEntries: ["1ABC"], modelledEntries: ["1ABC"], variantEntries: ["1ABC"], variantAtInterface: true, support: [1], residues: [358], artefact: false }];
+ const ev = buildInsightsEvidence({ result: { ...F.result, multimerData: assembly } as any, functionInput, stability: null });
+ expect(ev.lanes.find(l => l.key === "assembly")?.rest).toContain("1 of 1 short-peptide structures, read apart from native whole-protein interfaces");
 });

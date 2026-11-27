@@ -62,6 +62,13 @@ describe("Insights rail — inference provenance", () => {
     expect(screen.queryByText(/\(Deterministic\)/)).not.toBeInTheDocument();
   });
 
+  it("says a request that stopped is stopped, not that no key is configured", () => {
+    renderRow({ analysis: "", insights: null, metadata: { pipelineStages: { narrative: "skipped" } } });
+
+    expect(screen.getByText("AI request stopped")).toBeInTheDocument();
+    expect(screen.queryByText("AI not configured")).not.toBeInTheDocument();
+  });
+
   it("does not claim 'Inference Ready' before any synthesis has run", () => {
     renderRow(null);
 
@@ -81,7 +88,7 @@ describe("Insights rail — inference provenance", () => {
     expect(screen.queryByText("Inference Ready")).not.toBeInTheDocument();
     // The authored-by row says it outright. `deriveAiStatus`'s own label for this run is "AI service
     // busy", which reports what happened to the provider and says nothing about who wrote the prose.
-    expect(screen.getByText("Prose source")).toBeInTheDocument();
+    expect(screen.getByText("Written by")).toBeInTheDocument();
     expect(screen.getByText("Rule-based")).toBeInTheDocument();
     expect(screen.getByText(/No model produced this text/i)).toBeInTheDocument();
     // Inference parameters describe a call that never returned, so they are not reported.
@@ -92,7 +99,7 @@ describe("Insights rail — inference provenance", () => {
   it("reports AI authorship and its parameters when a model produced the text", () => {
     renderRow({ analysis: "A narrative.", insights: { model: MODEL, source: "ai_inference" } });
 
-    expect(screen.getByText("AI synthesis")).toBeInTheDocument();
+    expect(screen.getByText("AI model")).toBeInTheDocument();
     expect(screen.getByText("Sampling")).toBeInTheDocument();
     expect(screen.queryByText(/No model produced this text/i)).not.toBeInTheDocument();
   });
@@ -184,7 +191,7 @@ describe("Insights rail — how the case was built", () => {
 
     const row = renderRow(unstamped);
     expect(screen.getByText("No narrative")).toBeInTheDocument();
-    expect(screen.queryByText("AI synthesis")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI model")).not.toBeInTheDocument();
     expect(screen.queryByText("Rule-based")).not.toBeInTheDocument();
     row.unmount();
 

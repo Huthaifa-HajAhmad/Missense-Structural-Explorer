@@ -181,7 +181,7 @@ export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopE
       {isClassification ? <ClassificationHero block={block} /> : null}
 
       {block.warnings.length > 0 ? <details className="rpt-review" open={block.stale || block.key === "summary"}>
-        <summary>{block.key === "summary" ? "Review this summary before sharing" : "Interpretation and method"} <span>{block.warnings.length}</span></summary>
+        <summary>{block.key === "summary" ? "Review this summary before sharing" : "Interpretation and method"} <span>{block.warnings.length === 1 ? "1 note" : `${block.warnings.length} notes`}</span></summary>
         {block.warnings.map(w => <p key={w}>{w}</p>)}
       </details> : null}
       {block.stale ? (
@@ -259,7 +259,7 @@ export function ReportFooterCard({ doc }: { doc: ReportDocument }) {
           <b>Left out by the author:</b> {f.omitted.length ? f.omitted.join("; ") : "nothing"}
         </span>
         <span>
-          <b>Document ID</b> <span className="rpt-mono">{f.documentId}</span>. A canonical content identifier. Export time and file formatting are excluded; it does not prove authorship.
+          <b>Document ID</b> <span className="rpt-mono">{f.documentId}</span>. A fingerprint of the content, not counting export time or file format. It does not prove authorship.
         </span>
       </footer>
     </section>

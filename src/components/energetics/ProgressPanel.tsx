@@ -3,6 +3,7 @@ import { Activity } from "lucide-react";
 import { describeQueueWait } from "../../shared/jobsCopy";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import type { EnergeticsEvidence } from "../../shared/energeticsEvidence";
+import { returnedEnergyEstimates } from "../../shared/energeticsComparison";
 import { describeFoldxPhase, FOLDX_PHASES, type FoldxProgress } from "../../shared/foldxPhase";
 import { describeRunsOn, hostPhrase } from "../../shared/jobPlacement";
 import type { EnergeticsRun } from "./useEnergeticsEvidence";
@@ -52,7 +53,8 @@ export const ProgressPanel = memo(function ProgressPanel({
     progress && progress.elapsedMs !== null ? progress.elapsedMs + Math.max(0, nowMs - progress.receivedAt) : null
   );
   const queued = progress?.phase === "queued";
-  const returned = evidence.readings.filter(reading => reading.ddg !== null).length;
+  // The same engine count the Comparison and Engine records tabs use (the ProtVar cross-check is not an engine).
+  const returned = returnedEnergyEstimates(evidence);
   const outstandingEngineSummary = evidence.readings
     .filter(reading => reading.ddg === null)
     .map(reading => {
@@ -92,7 +94,7 @@ export const ProgressPanel = memo(function ProgressPanel({
   return (
     <section className="nrg-card nrg-progress" aria-label="Energetics run progress" data-testid="energetics-progress">
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {returned} of {evidence.readings.length} engine scores returned. {outstandingEngineSummary || "All engine scores returned."} {placementLine ? `${placementLine}. ` : ""}{currentActivity}
+        {returned} of {evidence.coverage.intended} engines returned a value. {outstandingEngineSummary || "All engines returned a value."} {placementLine ? `${placementLine}. ` : ""}{currentActivity}
       </p>
       <div className="nrg-progress__head">
         <span className="nrg-progress__title">
@@ -100,7 +102,7 @@ export const ProgressPanel = memo(function ProgressPanel({
           {title}
         </span>
         <span className="nrg-progress__meta">
-          <span className="nrg-progress__count">{returned} of {evidence.readings.length} scores ready</span>
+          <span className="nrg-progress__count">{returned} of {evidence.coverage.intended} engines returned a value</span>
           {elapsed && <span className="nrg-mono">Elapsed: {elapsed}</span>}
           {queueNote && <span>{queueNote}</span>}
           {canHidePending && (

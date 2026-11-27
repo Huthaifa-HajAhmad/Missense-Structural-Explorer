@@ -12,11 +12,13 @@ function Harness({ variant }: { variant?: 'secondary' } = {}) {
 }
 
 it('marks a tab with a dot and a description, and keeps the tab name unchanged', () => {
-  const ui = render(<WorkspaceTabs id="t" label="Tabs" tabs={[{ id: 'a', label: 'A' }, { id: 'b', label: 'B', mark: 'Holds a record' }]} value="a" onChange={() => {}} />);
+  const ui = render(<WorkspaceTabs id="t" label="Tabs" tabs={[{ id: 'a', label: 'A' }, { id: 'b', label: 'B', mark: 'ClinVar has a classification' }]} value="a" onChange={() => {}} />);
   const marked = ui.getByRole('tab', { name: 'B' });
-  expect(marked).toHaveAccessibleDescription('Holds a record');
+  // Screen readers and the hover tooltip both say what is held, in words, not only a dot.
+  const words = 'Holds a finding this view does not show. ClinVar has a classification';
+  expect(marked).toHaveAccessibleDescription(words);
   expect(marked).toHaveAttribute('data-marked');
-  expect(marked).toHaveAttribute('title', 'Holds a record');
+  expect(marked).toHaveAttribute('title', words);
   expect(marked.querySelector('.workspace-tabs__mark')).not.toBeNull();
   expect(ui.getByRole('tab', { name: 'A' })).not.toHaveAttribute('data-marked');
   expect(ui.getByRole('tab', { name: 'A' }).querySelector('.workspace-tabs__mark')).toBeNull();
@@ -35,7 +37,7 @@ it('shows no dot on the open tab, and brings it back when another tab is opened'
   fireEvent.click(ui.getByRole('tab', { name: 'B' }));
   expect(ui.getByRole('tab', { name: 'B' }).querySelector('.workspace-tabs__mark')).toBeNull();
   expect(ui.getByRole('tab', { name: 'A' }).querySelector('.workspace-tabs__mark')).not.toBeNull();
-  expect(ui.getByRole('tab', { name: 'A' })).toHaveAccessibleDescription('Holds record A');
+  expect(ui.getByRole('tab', { name: 'A' })).toHaveAccessibleDescription('Holds a finding this view does not show. Holds record A');
 });
 
 it.each([undefined, 'secondary'] as const)('moves selection and focus in %s tabs with one tab stop', variant => {

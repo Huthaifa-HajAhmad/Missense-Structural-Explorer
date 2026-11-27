@@ -5,9 +5,13 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildInterfacesEvidence, isStaleAssembly, nativeInterfaceSupport } from "../interfacesEvidence";
-import { SOD1_INTERFACES as F } from "./fixtures/sod1Interfaces";
-import { SLC12A4 } from "./fixtures/slc12a4";
-import { ABCG1_INTERFACES } from "./fixtures/abcg1Interfaces";
+import { SOD1_INTERFACES as ORIGINAL_F } from "./fixtures/sod1Interfaces";
+import { SLC12A4 as ORIGINAL_SLC12A4 } from "./fixtures/slc12a4";
+import { ABCG1_INTERFACES as ORIGINAL_ABCG1 } from "./fixtures/abcg1Interfaces";
+
+const F = { ...ORIGINAL_F, assembly: { ...ORIGINAL_F.assembly, experimental: { ...ORIGINAL_F.assembly.experimental, peptideChecked: true } } };
+const SLC12A4 = { ...ORIGINAL_SLC12A4, assembly: { ...ORIGINAL_SLC12A4.assembly, experimental: { ...ORIGINAL_SLC12A4.assembly.experimental, peptideChecked: true } } };
+const ABCG1_INTERFACES = { ...ORIGINAL_ABCG1, assembly: { ...ORIGINAL_ABCG1.assembly, experimental: { ...ORIGINAL_ABCG1.assembly.experimental, peptideChecked: true } } };
 
 describe("nativeInterfaceSupport — SOD1", () => {
   const support = nativeInterfaceSupport(F.assembly, "SOD1");
@@ -80,5 +84,20 @@ describe("nativeInterfaceSupport — only structures that model the residue coun
     const { coverage: _c, ...exp } = F.assembly.experimental;
     expect(isStaleAssembly({ ...F.assembly, experimental: exp })).toBe(true);
     expect(isStaleAssembly(F.assembly)).toBe(false);
+  });
+});
+
+
+describe("current interface payloads", () => {
+  it("merges human gene accessions and counts overlapping structures once", () => {
+    const base = F.assembly.experimental.partners[0];
+    const partner = (accession: string, entries: string[]) => ({ ...base, accession, gene: "CCS", organism: null, homomeric: false, artefact: null, context: "native" as const, residues: [6], support: [2], residueEntries: [entries], pdbEntries: entries, variantEntries: entries, modelledEntries: entries });
+    const assembly = { ...F.assembly, experimental: { ...F.assembly.experimental, coverageChecked: false, partners: [partner("P1", ["1aaa", "2aaa"]), partner("P2", ["2aaa", "3aaa"])] } };
+    expect(nativeInterfaceSupport(assembly, "SOD1").byResidue.get(6)).toEqual([{ label: "CCS", k: 3, n: 3 }]);
+    const tab = buildInterfacesEvidence({ result: F.result, assembly, assemblyStatus: "ready", ppi: null, ppiStatus: "ready", shift: null, shiftLoading: false });
+    expect(tab.observed.partners).toMatchObject([{ label: "CCS", k: 3, n: 3 }]);
+    const legacy = { ...assembly, experimental: { ...assembly.experimental, partners: assembly.experimental.partners.map((p: import("../contracts").ObservedInterface) => ({ ...p, residueEntries: undefined })) } };
+    // Without entry IDs, two supports of 2 could overlap completely. The known minimum is 2.
+    expect(nativeInterfaceSupport(legacy, "SOD1").byResidue.get(6)).toEqual([{ label: "CCS", k: 2, n: 3 }]);
   });
 });

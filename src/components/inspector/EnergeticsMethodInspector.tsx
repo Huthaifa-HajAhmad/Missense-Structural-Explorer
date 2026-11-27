@@ -6,7 +6,7 @@ import {
   markText,
   signedDdg,
   signedDdgNumber,
-  ENERGETICS_CAVEAT_TEXT,
+  energeticsCaveatDetail,
   ENERGETICS_GROUP_LABEL,
   FOLDX_TEMPLATE_DIFFERENCE_KCAL,
   type EnergeticsEvidence,
@@ -66,10 +66,10 @@ export function EnergeticsMethodInspector({
             <div><dt>Method family</dt><dd>{ENERGETICS_GROUP_LABEL[selected.group]}</dd></div>
             <div><dt>Structure basis</dt><dd>{structureBasisText(selected.key, selected.group, structure, evidence)}</dd></div>
             <div><dt>Sign convention</dt><dd>{getEngine(selected.key).nativeSign === 'negative-destabilizing' ? 'Provider sign reversed for comparison; positive here means less stable folding.' : 'Positive means less stable folding.'}</dd></div>
-            <div><dt>Local destabilising mark</dt><dd>{markText(selected.strongMark, unit)} {unit}. App-defined local placeholder pending held-out recalibration, not a clinical cut-point.</dd></div>
+            <div><dt>Local destabilising mark</dt><dd>{markText(selected.strongMark, unit)} {unit}. App-defined local mark, not yet recalibrated on held-out data; not a clinical cut-point.</dd></div>
           </dl>
           {selected.note && <p>{selected.note}</p>}
-          {selected.caveats.map(c => <p className="nrg-selected-caveat" key={c}>{ENERGETICS_CAVEAT_TEXT[c].detail}</p>)}
+          {selected.caveats.map(c => <p className="nrg-selected-caveat" key={c}>{energeticsCaveatDetail(c, unit)}</p>)}
         </> : <p>Select a point in Comparison or a method in Engine records to see its value, assumptions and limitations here.</p>}
         </div>
       </section>
@@ -113,7 +113,7 @@ export function EnergeticsMethodInspector({
           <p className="nrg-twofold-reading" data-tone={evidence.foldxTemplateCheck.tone}>
             {evidence.foldxTemplateCheck.headline} {evidence.foldxTemplateCheck.detail}
           </p>
-          <p className="nrg-step__sub">Cross-check only. One FoldX value is counted ({unit}); the {markText(FOLDX_TEMPLATE_DIFFERENCE_KCAL, unit, false)} gap mark is this app's, near FoldX's reported error.</p>
+          <p className="nrg-step__sub">Cross-check only. One FoldX value is counted ({unit}); the {markText(FOLDX_TEMPLATE_DIFFERENCE_KCAL, unit, false)} {unit} difference marker is this app's, near FoldX's reported error.</p>
         </section>
       )}
     </>

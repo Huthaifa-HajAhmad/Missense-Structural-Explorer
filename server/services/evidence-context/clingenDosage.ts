@@ -71,7 +71,7 @@ export async function loadDosageContext(gene: string): Promise<DosageResponse> {
       release: null, retrievedAt: table.retrievedAt, sha256: table.sha256, timestampBasis: 'download' as const };
     const matches = table.rows.filter(r => r.symbol === gene);
     if (!matches.length) return dosageResponseSchema.parse({ gene, status: 'not-found', record: null, provenance,
-      message: `No ClinGen dosage curation is listed for ${gene} in the complete source table. This does not mean copy-number changes are tolerated.` });
+      message: `No result. No ClinGen dosage curation is listed for ${gene} in the complete source table. This does not mean copy-number changes are tolerated.` });
     const row = matches[0];
     if (matches.length !== 1 || !/^HGNC:\d+$/.test(row.hgnc_id ?? '')) throw new DosageTableError('ClinGen returned an ambiguous or invalid gene identifier for this symbol. Curation availability could not be checked.');
     const score = (value: unknown, disease?: string | null, id?: string | null, history?: string | null) =>

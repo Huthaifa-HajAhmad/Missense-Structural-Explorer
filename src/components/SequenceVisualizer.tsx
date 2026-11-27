@@ -8,7 +8,7 @@ import { useApiClient } from "../apiClient";
 import { requestFieldsOf, type AnalysisCacheContext } from "../services/pipeline/analysisContext";
 import { variantNumberingView } from "../shared/numbering";
 import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
-import { landscapeFinding, landscapeKey, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
+import { landscapeFinding, landscapeKey, provenanceLine, withholdRegionalWhenRunDid, type SummaryMode } from "../shared/landscapeEvidence";
 import { isRegionFeatureType, regionKindOf } from "../shared/residueRegions";
 import { AMINO_ACID_MAP_3_TO_1, toOneLetter } from "./sequence/sequenceConstants";
 import { LandscapeLegend } from "./sequence/LandscapeLegend";
@@ -211,16 +211,16 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     return map;
   }, [landscapeData, extraRows]);
 
+  const missingWindowRows = useMemo(() => {
+    for (let p = range.start; p <= range.end; p++) {
+      if (!landscapeMap.has(p)) return true;
+    }
+    return false;
+  }, [landscapeMap, range.start, range.end]);
+
   useEffect(() => {
     if (!gene || !uniprotId || !variant || !landscapeData || residues.length === 0) return;
-    let missing = false;
-    for (let p = range.start; p <= range.end; p++) {
-      if (!landscapeMap.has(p)) {
-        missing = true;
-        break;
-      }
-    }
-    if (!missing) {
+    if (!missingWindowRows) {
       setWindowFailed(false);
       return;
     }
@@ -250,7 +250,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
       // Forgotten at once, so the effect that runs next (new run fields, say) asks for this window again.
       requested.current.delete(reqKey);
     };
-  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key, windowAttempt, runFields]);
+  }, [gene, uniprotId, variant, landscapeData, missingWindowRows, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key, windowAttempt, runFields]);
 
   /*
    * Whole-protein overview and gene context: one request per query, after the window has loaded.
@@ -451,7 +451,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const awayFromTarget = targetPos > 0 && (targetPos < range.start || targetPos > range.end);
   return (
     <div id="sequence-alignment-visualizer" className="landscape-canvas text-cs-text-primary">
-      {landscapeData && cautions.length > 0 && <details className="ls-data-notice">
+      {landscapeData && cautions.length > 0 && <details className="ls-data-notice" open>
         <summary><AlertTriangle size={14} aria-hidden="true" /><span>Data cautions ({cautions.length}) — review before comparing scores</span></summary>
         <div>{cautions.map(c => <p key={c}>{c}</p>)}</div>
       </details>}
@@ -542,7 +542,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             status={overview?.status ?? "idle"}
             error={overview?.error}
             positions={overview?.data?.positions ?? null}
-            context={overview?.data?.context ?? null}
+            context={withholdRegionalWhenRunDid(overview?.data?.context ?? null, runResult?.gnomadConstraint?.regionalStatus)}
             contextStatus={contextStatus}
             domains={domains}
             domainsLoaded={Array.isArray(uniprotFeatures)}

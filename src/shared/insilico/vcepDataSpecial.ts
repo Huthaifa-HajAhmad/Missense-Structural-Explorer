@@ -96,24 +96,24 @@ export const VCEP_SPECIAL_RULES: readonly VcepInsilicoRule[] = [
     notes: ["CSpec GN226 v1.0 prints Pejaver CADD BP4_Strong (≤ 0.15) under BP4_Moderate; literal conservative CSpec cutoffs are kept."],
   },
 
-  // Advisories (4 genes): default chain runs; uncomputable / competing clauses displayed explicitly
+  // Advisories (4 genes): the standard order runs; uncomputable / competing clauses displayed explicitly
   {
     gene: "TP53", cspecId: "GN009", version: "2.4", vcep: "TP53 Variant Curation Expert Panel",
     rule: { kind: "advisory" },
-    summary: "TP53 VCEP (GN009 v2.4) pairs Align-GVGD class (C65 / C25–C55 / C0) with BayesDel; default chain runs until Align-GVGD is available.",
-    notes: ["TP53 CSpec GN009 v2.4 requires Align-GVGD class alongside BayesDel noAF ≥ 0.16 / ≤ -0.008 (not computed here); default chain applies."],
+    summary: "TP53 VCEP (GN009 v2.4) pairs Align-GVGD class (C65 / C25–C55 / C0) with BayesDel; the standard order runs until Align-GVGD is available.",
+    notes: ["TP53 CSpec GN009 v2.4 pairs BayesDel noAF ≥ 0.16 / ≤ -0.008 with Align-GVGD class. Align-GVGD is not computed here, so the reading uses the general Pejaver 2022 bands shown on its ruler."],
   },
   {
     gene: "BRCA1", cspecId: "GN092", version: "1.2", vcep: ENIGMA,
     rule: { kind: "advisory" },
-    summary: "ENIGMA BRCA1 VCEP (GN092 v1.2) restricts BayesDel noAF (≥ 0.28 / ≤ 0.15) to RING (aa 2–101), coiled-coil (aa 1391–1424), and BRCT (aa 1650–1857) domains; default chain runs.",
-    notes: ["ENIGMA BRCA1 GN092 v1.2 gates BayesDel noAF PP3/BP4 by functional domain (RING 2–101, coiled-coil 1391–1424, BRCT 1650–1857); default chain applies."],
+    summary: "ENIGMA BRCA1 VCEP (GN092 v1.2) restricts BayesDel noAF (≥ 0.28 / ≤ 0.15) to RING (aa 2–101), coiled-coil (aa 1391–1424), and BRCT (aa 1650–1857) domains; the standard order runs.",
+    notes: ["ENIGMA BRCA1 GN092 v1.2 gates BayesDel noAF PP3/BP4 by functional domain (RING 2–101, coiled-coil 1391–1424, BRCT 1650–1857); the standard order applies."],
   },
   {
     gene: "BRCA2", cspecId: "GN097", version: "1.2", vcep: ENIGMA,
     rule: { kind: "advisory" },
-    summary: "ENIGMA BRCA2 VCEP (GN097 v1.2) restricts BayesDel noAF (≥ 0.30 / ≤ 0.18) to PALB2-binding (aa 10–40) and DNA-binding (aa 2481–3186) domains; default chain runs.",
-    notes: ["ENIGMA BRCA2 GN097 v1.2 gates BayesDel noAF PP3/BP4 by functional domain (PALB2-binding 10–40, DNA-binding 2481–3186); default chain applies."],
+    summary: "ENIGMA BRCA2 VCEP (GN097 v1.2) restricts BayesDel noAF (≥ 0.30 / ≤ 0.18) to PALB2-binding (aa 10–40) and DNA-binding (aa 2481–3186) domains; the standard order runs.",
+    notes: ["ENIGMA BRCA2 GN097 v1.2 gates BayesDel noAF PP3/BP4 by functional domain (PALB2-binding 10–40, DNA-binding 2481–3186); the standard order applies."],
   },
   {
     gene: "RYR1", cspecId: "GN012", version: "2.0", vcep: "Malignant Hyperthermia Susceptibility Variant Curation Expert Panel",
@@ -122,7 +122,7 @@ export const VCEP_SPECIAL_RULES: readonly VcepInsilicoRule[] = [
       { cspecId: "GN179", version: "2.0", vcep: MYOPATHY },
     ],
     rule: { kind: "advisory" },
-    summary: "RYR1 has two competing Released VCEPs (MHS GN012 vs Congenital Myopathies GN150/GN179); default chain runs.",
+    summary: "RYR1 has two competing Released VCEPs (MHS GN012 vs Congenital Myopathies GN150/GN179); the standard order runs.",
     notes: ["Compete by phenotype: Malignant Hyperthermia VCEP (GN012 v2.0) uses REVEL > 0.85 Moderate / < 0.5 Supporting; Congenital Myopathies (GN150/GN179 v2.0) use REVEL ≥ 0.7 / ≤ 0.15 Supporting + SpliceAI ≥ 0.5."],
   },
 

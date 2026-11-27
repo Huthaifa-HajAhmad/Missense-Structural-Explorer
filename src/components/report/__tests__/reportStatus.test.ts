@@ -109,3 +109,17 @@ describe("deriveAiStatus", () => {
     expect(outdated.action).toEqual({ kind: "write", label: "Rewrite summary", disabled: false });
   });
 });
+
+describe("deriveAiStatus when a summary request was stopped (release audit FB1)", () => {
+  it("says the request was stopped, not that AI is not configured, when a key is set", () => {
+    const status = deriveAiStatus({ ...BASE_INPUT, isKeyActive: true, requestStopped: true });
+    expect(status.label).toBe("AI request stopped");
+    expect(status.label).not.toMatch(/not configured/i);
+    expect(status.action).toEqual({ kind: "write", label: "Write summary", disabled: false });
+  });
+
+  it("still sends a reader without a key to settings after a stopped request", () => {
+    const status = deriveAiStatus({ ...BASE_INPUT, isKeyActive: false, requestStopped: true });
+    expect(status.action).toEqual({ kind: "open-settings", tab: "connections", label: "Configure Gemini" });
+  });
+});

@@ -129,7 +129,7 @@ npm run lint      # static gates alone
 ## 🏗️ Production Deployment Architecture
 For production environments, the platform runs on an **Oracle Cloud Infrastructure (OCI) Always Free Ampere A1 (ARM64)** instance:
 *   **Compute**: 2 OCPUs (ARM64 Neoverse-N1) / 12 GB RAM on `VM.Standard.A1.Flex` — free tier.
-*   **Ingress & TLS**: **Caddy** (`Caddyfile`, `deploy/docker-compose.oci.yml`) answers on ports 80 and 443 at `missense-resolve.duckdns.org` and obtains its certificate from Let's Encrypt. There is no Cloudflare in front of the site; the compose file's `tunnel` profile is optional and not used.
+*   **Ingress & TLS**: **Caddy** (`Caddyfile`, `deploy/docker-compose.oci.yml`) answers on ports 80 and 443 at `missense-resolve.duckdns.org` (the origin) and obtains its certificate from Let's Encrypt. Users reach the site through the Cloudflare Worker `missense-resolve-edge.pedigreepro.workers.dev`, which forwards to that origin; the compose file's `tunnel` profile is optional and not used.
 *   **Access Control**: the app's own **invite-only accounts**, switched on with `AUTH_MODE` (`legacy` → `hybrid` → `accounts`). Until `AUTH_MODE=accounts`, anyone with the address can run jobs. Owner runbook: [`doc/ACCOUNTS.md`](./doc/ACCOUNTS.md).
 *   **Deploys**: a blue/green handover that lets running jobs finish ([`deploy/ROLLOUT.md`](./deploy/ROLLOUT.md)). Apply an edited `deploy/.env.oci` with `python3 deploy/rollout.py --restart --commit "$(git rev-parse HEAD)"`, never `docker compose up` on the live app.
 *   **Data Persistence**: SQLite databases (analyses and accounts) are stored on persistent NVMe block storage with daily automated backups (`deploy/backup-sqlite.sh`) and optional offsite sync to Cloudflare R2.

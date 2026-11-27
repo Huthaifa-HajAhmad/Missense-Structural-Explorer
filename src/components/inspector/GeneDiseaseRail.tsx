@@ -41,7 +41,7 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
       {selected ? <><p>{selected.label}</p><p className="gd-caption">{selected.inheritance.label} · {selected.diseaseId}</p>
         <p>{model.assertions.length} submitted validity assertions. {model.mechanismSummary}</p>
         <p className="gd-caption">Select a submitter or dosage reading to inspect its interpretation and source.</p></>
-        : <p>Choose a disease in the workspace to review its validity, mechanism and variant context. Gene dosage can be reviewed independently.</p>}
+        : <p>Choose a disease in the workspace to review its validity, mechanism and variant context.</p>}
     </div>} />
     <section className="gd-source-section" aria-labelledby="gd-rail-sources"><h3 id="gd-rail-sources">Sources &amp; availability</h3>
       <div data-testid="context-sources">{sourceRows.map(({ name, reading, provenance }) => {
@@ -67,7 +67,6 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
           prompt="Select a score for a plain-language summary." initial={openScore} />
         <h3>Scope</h3>
         <ul className="gd-ref__notes">
-          <li>Dosage is whole-gene copy number; it does not establish the effect of a missense variant.</li>
           <li>Mechanism records must match the exact gene, MONDO disease and allelic requirement.</li>
           <li>Snapshots are flagged after {SNAPSHOT_STALE_AFTER_DAYS.GenCC} days (GenCC) or {SNAPSHOT_STALE_AFTER_DAYS.Gene2Phenotype} days (Gene2Phenotype); a flag never hides evidence.</li>
           <li>Context only: no ACMG criterion is added or changed.</li>

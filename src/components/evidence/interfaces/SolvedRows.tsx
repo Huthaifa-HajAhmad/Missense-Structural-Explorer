@@ -19,6 +19,7 @@ interface SolvedProps {
 const gapAt = (p: ObservedView, position: number | null) => (position === null ? null : p.unmodelled?.find(g => g.start <= position && position <= g.end) ?? null);
 
 function contextWords(p: ObservedView): { at: string; unit: string; chip: string | null } {
+  if (p.context === "peptide") return { at: "touches a partner in a peptide fragment", unit: "peptide-only structures", chip: "Peptide fragment" };
   if (p.context === "fibril") return { at: "touches a neighbouring fibril chain", unit: "fibril structures", chip: "Fibril" };
   if (p.context === "crystal") return { at: "touches another chain outside the deposited assembly", unit: "monomer-assembly entries", chip: "Outside assembly" };
   return { at: "at the interface", unit: "structures", chip: null };
@@ -39,6 +40,7 @@ function Reason({ p, ev }: { p: ObservedView; ev: InterfacesEvidence }) {
     ? " Stacking along a fibril, not a native interface."
     : p.context === "crystal"
       ? " The entry's deposited biological assembly is a monomer, so this contact is outside it and is not counted as a native interface."
+      : p.context === "peptide" ? " A short query fragment, not a whole-protein native interface."
       : ` The best-attested residues of this interface are seen in ${p.maxSupport} of ${p.total}.`;
   return (
     <>
@@ -55,7 +57,7 @@ function Reason({ p, ev }: { p: ObservedView; ev: InterfacesEvidence }) {
 }
 
 function SolvedRow({ p, ev, lit, onLit, show3d }: SolvedProps & { p: ObservedView }) {
-  const native = p.context !== "fibril" && p.context !== "crystal";
+  const native = p.context !== "fibril" && p.context !== "crystal" && p.context !== "peptide";
   const words = contextWords(p);
   const unmodelled = p.n === 0 && p.total > 0;
   return (
@@ -107,7 +109,7 @@ function ArtefactRow({ p }: { p: ObservedView }) {
 export function SolvedRows(props: SolvedProps) {
   const { ev } = props;
   const [open, setOpen] = useState(false);
-  const rows = [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals];
+  const rows = [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals, ...ev.observed.peptides];
   const fold = ev.observed.artefactsFold;
   return (
     <tbody data-group="solved">

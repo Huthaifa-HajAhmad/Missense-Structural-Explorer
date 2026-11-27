@@ -2429,6 +2429,8 @@ export interface ObservedInterface {
   residues: number[];
   /** Entries in which each residue is at the interface; same order as `residues`. */
   support: number[];
+  /** PDB entries per interface residue, for merging partner accessions without double counting. */
+  residueEntries?: string[][];
   /** Structures that contain this pair (lower-case PDB ids). */
   pdbEntries: string[];
   homomeric: boolean;
@@ -2443,7 +2445,7 @@ export interface ObservedInterface {
    * is crystal packing; "native": every other structure. Absent on payloads written before the split
    * (re-read, not shown).
    */
-  context?: "native" | "fibril" | "crystal";
+  context?: "native" | "fibril" | "crystal" | "peptide";
   /** The partner's UniProt gene name, when read. */
   gene?: string | null;
   /** The partner's organism when it is not human (UniProt common name); null for human. */
@@ -2636,6 +2638,8 @@ export interface MultimerExperimentalInterfaces {
   entryKinds?: "ok" | "failed";
   /** True when the biological-assembly check answered, so crystal-packing entries were told apart. */
   crystalChecked?: boolean;
+  /** True when short query fragments were separated from native interfaces. */
+  peptideChecked?: boolean;
   /** True when PDBe said which residues each entry models; false when it did not answer. */
   coverageChecked?: boolean;
   /**

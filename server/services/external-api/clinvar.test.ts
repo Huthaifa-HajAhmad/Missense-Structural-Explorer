@@ -280,7 +280,7 @@ describe("fetchClinVarData", () => {
       germline_classification: { description, last_evaluated: "2023-01-01", review_status: "criteria provided, single submitter", trait_set: [] },
       allele_freq_set: [],
     });
-    const run = async (otherDescription: string) => {
+    const run = async (otherDescription: string, options?: { originalNotation?: string }) => {
       const fetchSpy = vi.spyOn(global, "fetch");
       fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ esearchresult: { idlist: ["1", "2"] } }) } as any);
       fetchSpy.mockResolvedValueOnce({
@@ -288,17 +288,22 @@ describe("fetchClinVarData", () => {
         json: async () => ({ result: { uids: ["1", "2"], "1": entry("c.1222C>T", "Uncertain significance"), "2": entry("c.1224C>T", otherDescription) } }),
       } as any);
       noVariantRecord(fetchSpy);
-      return fetchClinVarData("PAH", "p.Arg408Trp");
+      return fetchClinVarData("PAH", "p.Arg408Trp", options);
     };
 
     it("a Conflicting record is not an established pathogenic one", async () => {
-      const res = await run("Conflicting interpretations of pathogenicity");
+      const res = await run("Conflicting interpretations of pathogenicity", { originalNotation: "c.1222C>T" });
       expect(res.hasOtherPathogenicVariantSameAA).toBe(false);
     });
 
-    it("a Pathogenic / Likely pathogenic record at a different nucleotide change is", async () => {
-      const res = await run("Pathogenic/Likely pathogenic");
+    it("a Pathogenic / Likely pathogenic record at a different nucleotide change is, when the queried nucleotide allele is established", async () => {
+      const res = await run("Pathogenic/Likely pathogenic", { originalNotation: "c.1222C>T" });
       expect(res.hasOtherPathogenicVariantSameAA).toBe(true);
+    });
+
+    it("does NOT award PS1 on a protein-only query when no nucleotide allele is established", async () => {
+      const res = await run("Pathogenic/Likely pathogenic");
+      expect(res.hasOtherPathogenicVariantSameAA).toBe(false);
     });
 
     it("does NOT award PS1 when coding HGVS notation cannot be parsed (strict HGVS match required)", async () => {

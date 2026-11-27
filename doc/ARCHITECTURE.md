@@ -156,8 +156,7 @@ In production, the application is designed to be hosted in a containerized envir
 To ensure MissenseResolve® provides instant UI responsiveness (<1.5s initial load) even when invoking multiple third-party academic servers, external APIs, or local deep learning models, all agents and developers modifying this codebase MUST strictly follow the **Non-Blocking Fast-Degradation Principle**:
 
 ### A. Strict Timeout & Fast-Race Deadlines
-- **Deep Learning Model Sidecars** (`ESM-3`, `ESM-C`, `ESM-2 3B`, `SaProt`):
-  Inside `POST /api/v1/analyze-variant`, deep learning sidecar promises MUST be raced against a **2.5-second fast deadline** (`Promise.race([sidecarPromise, timeoutPromise])`). Slow ML sidecars must NEVER delay the primary Clinical, ClinVar, ACMG, and Predictor evidence rendering.
+- **Model sidecars**: the runtime protein language models (ESM-2, ESM3, ESMC, SaProt) were retired on 2026-11-18. Any sidecar call that remains on the analysis path MUST still be raced against a short deadline so it never delays the Clinical, ClinVar, ACMG and predictor evidence.
 - **External Web Service Submissions** (`DynaMut2`, `DDMut`, `ThermoMPNN`):
   Wherever the stability pipeline submits a remote job, the submission call MUST be raced against a **300ms deadline**. Local FoldX predictions (~2ms cached) and mutant PDB coordinate buffers MUST return immediately to the frontend, allowing remote job submissions to continue asynchronously in the background.
 - **Online Conservation & API Queries** (`popEVE`, `NCBI E-utilities`):

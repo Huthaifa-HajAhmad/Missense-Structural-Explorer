@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { Fragment } from 'react';
+
+/** The words every dot carries: a screen reader hears them, and the hover tooltip shows them. */
+const MARK_LEAD = 'Holds a finding this view does not show';
 
 /**
  * Workspace navigation: one keyboard stop, automatic activation, labelled panels.
  *
  * A tab may carry a `mark`: one plain sentence saying what it holds ("ClinVar has a classification…").
  * Every tab except the open one shows it as a small dot after the label, so a reader can see there is
- * something to open; the open tab is already showing its own content. Hovering the tab shows the sentence,
- * and assistive technology reads it as the tab's description. It is not part of the tab's name, so the
- * name stays the label.
+ * something to open; the open tab is already showing its own content. Hovering the tab shows the words,
+ * and assistive technology reads them as the tab's description. They are not part of the tab's name, so
+ * the name stays the label.
  */
 export function WorkspaceTabs<T extends string>({ id, label, tabs, value, onChange, variant = 'primary' }: {
   variant?: 'primary' | 'secondary';
@@ -26,15 +29,18 @@ export function WorkspaceTabs<T extends string>({ id, label, tabs, value, onChan
     event.currentTarget.ownerDocument.getElementById(`${id}-tab-${tabs[next].id}`)?.focus();
   }}>
     {tabs.map(tab => {
-      const mark = value === tab.id ? undefined : tab.mark;
-      return <button type="button" key={tab.id} id={`${id}-tab-${tab.id}`}
-        role="tab" aria-selected={value === tab.id} aria-controls={value === tab.id ? `${id}-panel-${tab.id}` : undefined}
-        aria-describedby={mark ? `${id}-mark-${tab.id}` : undefined} data-marked={mark ? '' : undefined} title={mark}
-        tabIndex={value === tab.id ? 0 : -1} onClick={() => onChange(tab.id)}>
-        {tab.label}
-        {/* aria-hidden keeps the sentence out of the tab's name; aria-describedby still reads it. */}
-        {mark && <><span className="workspace-tabs__mark" aria-hidden="true" /><span id={`${id}-mark-${tab.id}`} className="sr-only" aria-hidden="true">{mark}</span></>}
-      </button>;
+      const description = value !== tab.id && tab.mark ? `${MARK_LEAD}. ${tab.mark}` : undefined;
+      return <Fragment key={tab.id}>
+        <button type="button" id={`${id}-tab-${tab.id}`}
+          role="tab" aria-selected={value === tab.id} aria-controls={value === tab.id ? `${id}-panel-${tab.id}` : undefined}
+          aria-describedby={description ? `${id}-mark-${tab.id}` : undefined} data-marked={description ? '' : undefined} title={description}
+          tabIndex={value === tab.id ? 0 : -1} onClick={() => onChange(tab.id)}>
+          {tab.label}
+          {description && <span className="workspace-tabs__mark" aria-hidden="true" />}
+        </button>
+        {/* Outside the button, so the name stays the label; hidden, so the words are read only through the description. */}
+        {description && <span id={`${id}-mark-${tab.id}`} hidden>{description}</span>}
+      </Fragment>;
     })}
   </div>;
 }

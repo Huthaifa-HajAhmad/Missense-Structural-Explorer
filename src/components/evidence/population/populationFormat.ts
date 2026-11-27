@@ -77,3 +77,16 @@ export function clinvarAccessionNote(availability: EvidenceAvailability): string
       return availability.label ?? "Not read";
   }
 }
+
+/** ClinVar's placeholders for "no condition was named", as they appear inside a condition list. */
+const UNNAMED_CONDITION = new Set(["not provided", "not specified"]);
+
+/**
+ * The condition names ClinVar gives a record, with its "not provided" and "not specified" placeholders
+ * removed. Null when every name is a placeholder, so the caller can say that in words instead.
+ */
+export function namedConditionText(trait: string | null | undefined): string | null {
+  if (!trait) return null;
+  const named = trait.split(",").map(part => part.trim()).filter(part => part && !UNNAMED_CONDITION.has(part.toLowerCase()));
+  return named.length > 0 ? named.join(", ") : null;
+}

@@ -1,6 +1,6 @@
 import type { AnalysisResult } from "./contracts";
 import { computeStabilityConsensus } from "./thresholds";
-import type { FoldxRunState } from "./energeticsEvidence";
+import { buildEnergeticsEvidence, finalFoldingStatus, type FoldxRunState } from "./energeticsEvidence";
 
 export function stabilityConsensusFor(args: FoldxRunState & {
   result: AnalysisResult | null;
@@ -12,24 +12,26 @@ export function stabilityConsensusFor(args: FoldxRunState & {
 }) {
   const { result, foldingEnergetics: fe, foldingDdG, isFolding, foldingStatus } = args;
   if (!result) return null;
-  return computeStabilityConsensus(
-    {
-      // Mirrors `EnergeticsView`'s `energetics` memo key for key. Companion engines read from
-      // `foldingEnergetics` only so the panel verdict and shared consensus stay aligned.
-      foldx: fe?.foldx ?? foldingDdG ?? null,
-      foldxMean: fe?.foldxMean ?? foldingDdG ?? null,
-      rasp: fe?.rasp ?? null,
-      thermompnn: fe?.thermompnn ?? null,
-      stabilityoracle: fe?.stabilityoracle ?? null,
-      foldxRepairFailed: fe?.foldxRepairFailed ?? false,
-      foldxBinaryMissing: fe?.foldxBinaryMissing ?? false,
-      // ProtVar stands in for FoldX on an AlphaFold template with no local value; see `FOLDX_STAND_IN_RULE`.
-      protvar: fe?.protvar ?? null,
-      structureProvenance: fe?.structureProvenance ?? null
-    },
+  const energetics = {
+    // Mirrors `EnergeticsView`'s `energetics` memo key for key. Companion engines read from
+    // `foldingEnergetics` only so the panel verdict and shared consensus stay aligned.
+    foldx: fe?.foldx ?? foldingDdG ?? null,
+    foldxMean: fe?.foldxMean ?? foldingDdG ?? null,
+    rasp: fe?.rasp ?? null,
+    thermompnn: fe?.thermompnn ?? null,
+    stabilityoracle: fe?.stabilityoracle ?? null,
+    foldxRepairFailed: fe?.foldxRepairFailed ?? false,
+    foldxBinaryMissing: fe?.foldxBinaryMissing ?? false,
+    // ProtVar stands in for FoldX on an AlphaFold template with no local value; see `FOLDX_STAND_IN_RULE`.
+    protvar: fe?.protvar ?? null,
+    structureProvenance: fe?.structureProvenance ?? null
+  };
+  const evidence = buildEnergeticsEvidence({
+    foldingEnergetics: energetics, isFolding, foldingStatus: finalFoldingStatus(foldingStatus),
+  });
+  return {
     // Whether local FoldX is still running decides the ProtVar stand-in, as on the Energetics screen.
-    { isFolding, foldingStatus }
-    // Values only. The residue context and pLDDT arguments fed per-context "AUC" weights that had no
-    // source (`protein_class_calibration.json`); they were retired with the probability.
-  );
+    ...computeStabilityConsensus(energetics, { isFolding, foldingStatus }),
+    enginesModerate: evidence.agreement.moderate.length,
+  };
 }

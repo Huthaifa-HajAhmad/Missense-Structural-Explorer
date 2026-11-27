@@ -60,8 +60,9 @@ export function buildClinvarKey(
   const alleleStr = coord
     ? `_allele_${coord.chrom.replace(/^chr/i, "").toUpperCase()}:${coord.pos}:${coord.ref.toUpperCase()}>${coord.alt.toUpperCase()}`
     : "_noallele";
-  // `allele1`: records written before the key carried the allele may belong to another allele.
-  return `clinvar_${normGene}_${cleanVar}${notStr}${alleleStr}_condition-records1_allele1_schema:${CACHE_SCHEMA_VERSION}`;
+  // `allele2`: retires pre-fix ClinVar rows that could record `hasOtherPathogenicVariantSameAA`
+  // on unresolved protein-only queries or pick the wrong record on transcript-qualified cDNA queries.
+  return `clinvar_${normGene}_${cleanVar}${notStr}${alleleStr}_condition-records1_allele2_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildPdbKey(pdbId: string, chainId = "A", unpStart = 0, structStart = 0, pos = 0): string {

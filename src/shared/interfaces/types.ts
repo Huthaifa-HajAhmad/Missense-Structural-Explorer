@@ -220,6 +220,7 @@ export interface InterfacesEvidence {
     fibrils: ObservedView[];
     /** The same pairs where the entry's biological assembly is a monomer: crystal packing. */
     crystals: ObservedView[];
+    peptides: ObservedView[];
     /** Construct tags, tool antibodies, unmapped chains: shown, never counted. */
     artefacts: ObservedView[];
     /** What the table draws: the first few set-aside chains; the rest fold behind one line. */

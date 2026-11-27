@@ -18,7 +18,7 @@ import { useVariantAnalysisStore } from '../../../stores/useVariantAnalysisStore
 import { hotspotsSlot } from '../../../shared/evidenceKeys';
 import { hotspotMark } from '../../../shared/viewMarks';
 import type { ContextLoad } from '../../../stores/slices/evidenceContextSlice';
-import type { HotspotContext } from '../../../shared/hotspotEvidence';
+import { expertPm1Specified, type HotspotContext } from '../../../shared/hotspotEvidence';
 import { HotspotsView } from './HotspotsView';
 
 /**
@@ -294,13 +294,15 @@ export function FunctionTab({ analysisState, onSelectResidue, onNavigateToView }
     });
 
   const fndInput = useMemo(() => (result ? functionEvidenceInputFrom(result) : null), [result]);
-  const ev = useMemo(() => (fndInput ? buildFunctionEvidence(fndInput) : null), [fndInput]);
   // Hot spots load up front with the other Evidence context (EvidenceContextPrefetch); the tab only reads
   // the slot. The slot key comes from `hotspotsSlot`, the same builder the loader uses — including its
   // result-metadata-or-store-gene rule, so a fallback identity reads the slot the writer filled.
   const storeGene = useVariantAnalysisStore(s => s.gene);
   const hotspotGene = result?.metadata?.gene || storeGene || null;
   const hotspotLoad = useVariantAnalysisStore(s => s.extraContexts[hotspotsSlot(hotspotGene, result?.metadata?.uniprotId, result?.transcriptId)]) as ContextLoad<HotspotContext> | undefined;
+  // An expert panel's PM1 rule is read from the same hot-spot context this view shows.
+  const expertPm1 = Boolean(hotspotLoad?.data && expertPm1Specified(hotspotLoad.data.cspec));
+  const ev = useMemo(() => (fndInput ? buildFunctionEvidence({ ...fndInput, expertPm1Specified: expertPm1 }) : null), [fndInput, expertPm1]);
   const hotspots = useMemo(() => ev && result ? buildHotspotEvidence(hotspotInputFrom(result, ev, hotspotLoad, fndInput?.engineCriteria)) : null, [ev, hotspotLoad, result, fndInput]);
   /** The domain-name disclosure lists entries, each with its units and the databases behind it. */
   const domainEntries = useMemo(() => {

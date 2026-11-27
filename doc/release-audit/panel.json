@@ -1,0 +1,19 @@
+{
+  "note": "Variant panel for the release coherence audit. 'regression' = variants that broke earlier tab audits; 'clingen' = ClinGen expert-panel (VCEP) classifications from erepo, used as the outside truth set.",
+  "variants": [
+    { "id": "UROD_G318R", "set": "regression", "gene": "UROD", "variant": "1-45015346-G-A", "uniprot": "P06132", "why": "afr FAF95 1.62% above the BS1 reference (BS1 not applied app-wide since it needs a condition-specific MCAF); local dbNSFP vs gnomAD" },
+    { "id": "ABCG1_G358R", "set": "regression", "gene": "ABCG1", "variant": "p.Gly358Arg", "uniprot": "P45844", "why": "non-MANE model isoform; unmodelled linker; popEVE protein" },
+    { "id": "SOD1_A5V", "set": "regression", "gene": "SOD1", "variant": "p.Ala5Val", "uniprot": "P00441", "why": "densest protein; fibril PDB entries" },
+    { "id": "HBB_E7V", "set": "regression", "gene": "HBB", "variant": "p.Glu7Val", "uniprot": "P68871", "why": "legacy numbering (E6V); single-isoform VEP" },
+    { "id": "GBA1_N409S", "set": "regression", "gene": "GBA1", "variant": "p.Asn409Ser", "uniprot": "P04062", "why": "GBA vs GBA1 symbol; legacy N370S" },
+    { "id": "TP53_R175H", "set": "regression", "gene": "TP53", "variant": "p.Arg175His", "uniprot": "P04637", "why": "should pass every tab cleanly" },
+    { "id": "PAH_R261L", "set": "clingen", "gene": "PAH", "variant": "p.Arg261Leu", "uniprot": "P00439", "vcep": { "assertion": "Likely Pathogenic", "met": ["PP3_Strong", "PM5", "PM2_Supporting"], "notMet": [] } },
+    { "id": "TP53_K132N", "set": "clingen", "gene": "TP53", "variant": "p.Lys132Asn", "uniprot": "P04637", "vcep": { "assertion": "Pathogenic", "met": ["PM2_Supporting", "PP3_Moderate", "PS3", "PM1", "PP4_Moderate"], "notMet": ["BP4", "BA1", "BS1", "PM5", "PS1"] } },
+    { "id": "TP53_P295S", "set": "clingen", "gene": "TP53", "variant": "p.Pro295Ser", "uniprot": "P04637", "vcep": { "assertion": "Likely Benign", "met": ["PM2_Supporting", "BP4", "BS3"], "notMet": ["PP3", "BA1", "BS1", "PM1", "PM5", "PS1"] } },
+    { "id": "MYH7_R787H", "set": "clingen", "gene": "MYH7", "variant": "p.Arg787His", "uniprot": "P12883", "vcep": { "assertion": "Benign", "met": ["BP2", "PM1", "BA1", "BS4"], "notMet": ["BP4", "PM2", "PM5", "PP3", "BS1"] } },
+    { "id": "PTEN_A79T", "set": "clingen", "gene": "PTEN", "variant": "p.Ala79Thr", "uniprot": "P60484", "vcep": { "assertion": "Benign", "met": ["BS2_Supporting", "PP2", "BA1", "BS3_Supporting"], "notMet": [] } },
+    { "id": "LDLR_T726I", "set": "clingen", "gene": "LDLR", "variant": "p.Thr726Ile", "uniprot": "P01130", "vcep": { "assertion": "Benign", "met": ["BP4", "BA1"], "notMet": ["PP3", "PM1", "PM2", "PM5", "BS1"] } },
+    { "id": "GCK_R377H", "set": "clingen", "gene": "GCK", "variant": "p.Arg377His", "uniprot": "P35557", "vcep": { "assertion": "Pathogenic", "met": ["PP4_Moderate", "PP2", "PP3", "PP1", "PM2_Supporting", "PS4_Moderate", "PM5_Strong"], "notMet": [] } },
+    { "id": "BRCA2_N277K", "set": "clingen", "gene": "BRCA2", "variant": "p.Asn277Lys", "uniprot": "P51587", "vcep": { "assertion": "Benign", "met": ["BS1_Supporting", "BP1_Strong", "BP5", "BS3"], "notMet": [] } }
+  ]
+}

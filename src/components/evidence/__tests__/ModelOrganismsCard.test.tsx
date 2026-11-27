@@ -88,3 +88,11 @@ describe('Mouse screen body-system plot', () => {
     expect(rowNames()).toHaveLength(12);
   });
 });
+
+describe('ModelOrganismsCard — the methods column carries its unit', () => {
+  it('says how many methods agreed, not a bare number', () => {
+    render(<ModelOrganismsCard load={ready(response)} systems={['nervous']} onRetry={() => {}} />);
+    expect(screen.getByText('12 methods')).toBeInTheDocument();
+    expect(screen.getByText('3 methods')).toBeInTheDocument();
+  });
+});

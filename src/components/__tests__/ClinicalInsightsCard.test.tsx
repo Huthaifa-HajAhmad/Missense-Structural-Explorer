@@ -301,7 +301,8 @@ describe("ClinicalInsightsCard consolidated case", () => {
   it("leads with the engine's classification and lists only its codes as counted", () => {
     renderCard(withCriteria());
     expect(screen.getByText("Rule-engine classification")).toBeInTheDocument();
-    expect(screen.getByText(/The engine counted 1 criterion: PP3\./)).toBeInTheDocument();
+    expect(screen.getByText("Automated tier: uncertain significance.")).toBeInTheDocument();
+    expect(screen.getByText(/Counted: PP3 Supporting\./)).toBeInTheDocument();
     expect(screen.getByText(/Uncertain/, { selector: ".ins-tier" })).toBeInTheDocument();
   });
 
@@ -320,7 +321,7 @@ describe("ClinicalInsightsCard consolidated case", () => {
 
   it('retains evidence during a streaming analysis rather than replacing it with the initial loader', () => {
     renderCard(withCriteria(), { analysisState: { result: withCriteria(), isLoading: true, error: null } });
-    expect(screen.getByRole('status')).toHaveTextContent('Evidence is still arriving');
+    expect(screen.getAllByRole('status').find(el => el.textContent?.includes('Evidence is'))).toHaveTextContent('Evidence is still arriving');
     expect(screen.getByRole('button', { name: 'Computational' })).toBeInTheDocument();
   });
 

@@ -5,7 +5,8 @@ import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import type { MultimerData, PpiBindingData, PpiBindingShift } from "../../shared/contracts";
 import { THRESHOLDS, STRING_CONFIDENCE_BANDS } from "../../shared/thresholds";
-import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
+import { ENGINE_STATE_LABELS, type EnergyUnit } from "../../shared/engineStatus";
+import { useOptionalSettings } from "../../context/SettingsContext";
 import { LOCALFOLD_MAX_RESIDUES } from "../../shared/multimerHandoff";
 import {
   DDMUT_PPI_PERFORMANCE,
@@ -68,7 +69,9 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
     shiftLoading,
     shiftError,
   }), [analysisResult, storedAsm, assemblyStatus, assemblyError, modelRequested, ppiForVariant, ppiStatus, ppiError, shiftForVariant, shiftLoading, shiftError]);
-  const rows = useMemo(() => interfaceWorkspaceReadings(ev), [ev]);
+  const settingsCtx = useOptionalSettings();
+  const unit: EnergyUnit = settingsCtx?.settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol";
+  const rows = useMemo(() => interfaceWorkspaceReadings(ev, unit), [ev, unit]);
   const assemblyPending = assemblyStatus === "loading";
   const lookupsPending = ppiStatus === "loading";
   const C = THRESHOLDS.complexConfidence;
@@ -185,6 +188,7 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
               interface residue&apos;s own support still counts every structure of the pair.
             </li>
             <li>
+              Peptide fragments (an observed query span of at most 30 residues in a protein of at least 100 residues) are shown separately and excluded from native counts.
               Amyloid fibril structures (RCSB keyword &ldquo;protein fibril&rdquo;, or &ldquo;amyloid&rdquo; or &ldquo;fibril&rdquo; in the title) are read apart:
               in a fibril every chain stacks on the next, so most of the core touches another copy. That contact is not the native interface,
               is never the verdict, and is never a wild type for the binding change.

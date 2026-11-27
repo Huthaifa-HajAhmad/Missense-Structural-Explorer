@@ -466,10 +466,10 @@ function AlphaGenomeTabBody({
               {availability.action === "retry"
                 ? "Re-evaluate the variant to ask the Atlas again."
                 : availability.action === "configure-credentials"
-                ? "Add or check the AlphaGenome credential in Settings, then re-evaluate."
+                ? "AlphaGenome needs your API key — add it in Settings → Connections, then re-evaluate."
                 : availability.state === "not-covered"
                 ? "No setting changes this."
-                : "No cause was recorded for this absence."}
+                : availability.reason ? null : "No cause was recorded for this absence."}
             </p>
             {(availability.action === "retry" || availability.action === "configure-credentials") && (
               <div className="ag-actions">
@@ -550,7 +550,8 @@ function AlphaGenomeTabBody({
 
       {/* ── 2. What the score is made of ───────────────────────────────────────────────────── */}
       {workspace.comparison && <>
-        <EvidenceComparison tab="alphagenome" model={attributionModel} title="What contributes to this score?" description="Each input can raise or lower the raw AVI score. Select a dot for its explanation." />
+        {/* With no score there is nothing to plot: the absence statement above says why. */}
+        {ev.assessed && <EvidenceComparison tab="alphagenome" model={attributionModel} title="What contributes to this score?" description="Each input can raise or lower the raw AVI score. Select a dot for its explanation." />}
         <AlphaGenomeGuide evidence={ev} />
       </>}
       {!workspace.comparison && ev.assessed && <Contributions ev={ev} />}

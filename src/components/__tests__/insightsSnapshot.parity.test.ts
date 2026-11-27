@@ -21,11 +21,32 @@ describe("stabilityInputFor", () => {
     const card = deriveConsensus({ result, foldingEnergetics: fe, foldingDdG: ddg });
     const ours = stabilityInputFor(result, fe, ddg);
     if (!card) return expect(ours).toBeNull();
-    expect(ours).toEqual({
+    expect(ours).toMatchObject({
       verdict: card.consensusVerdict,
       enginesCounted: card.enginesCounted,
       enginesDestabilizing: card.enginesDestabilizing,
+      enginesModerate: card.enginesModerate,
     });
+  });
+
+  it("carries the provisional state and the running engine while FoldX is still running", () => {
+    const ours = stabilityInputFor(result, { rasp: 1.1, thermompnn: 0.5 }, null, { isFolding: true, foldingStatus: null });
+    expect(ours?.provisional).toBe(true);
+    expect(ours?.runningEngines).toContain("FoldX");
+  });
+
+  it("carries a withheld stability conclusion when the AlphaFold residue has very low confidence", () => {
+    const lowConfidence = {
+      ...result,
+      disruptionPredictor: { plddt: 20 },
+    };
+    const ours = stabilityInputFor(lowConfidence, { rasp: 1.1, thermompnn: 0.5, structureProvenance: { source: "alphafold" } }, null);
+    expect(ours?.withheldText).toMatch(/^No stability conclusion: AlphaFold's confidence at this residue is very low/);
+  });
+
+  it("carries moderate engines from the Energetics bands", () => {
+    const ours = stabilityInputFor(result, { foldx: 2.6, thermompnn: 0.5, rasp: 0.5 }, null);
+    expect(ours).toMatchObject({ enginesDestabilizing: 1, enginesModerate: 2, enginesCounted: 3 });
   });
 
   it("returns nothing when no analysis is loaded", () => {

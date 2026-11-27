@@ -3,7 +3,7 @@
  * other views (residue focus, hot spots) read for residues other than the queried one.
  */
 import type { MultimerData, PpiBindingData } from "../contracts.ts";
-import { observedLabel } from "./format.ts";
+import { mergeObserved, toView } from "./observed.ts";
 import { entriesModelling, type ObservedRanges } from "../residueCoverage.ts";
 
 /**
@@ -22,6 +22,7 @@ export function isStaleAssembly(d: MultimerData | null | undefined): boolean {
     // A payload written before the crystal-packing split or the coverage read carries no verdict on
     // them: re-read once, then trust the recorded flag (including `false` when the provider did not
     // answer), so a failed lookup does not make the assembly re-read forever.
+    (exp?.status === "ok" && partners.length > 0 && exp.peptideChecked !== true) ||
     (partners.length > 0 && (exp?.crystalChecked === undefined || exp?.coverageChecked === undefined)) ||
     (partners.length > 0 && exp?.coverageChecked === true && !exp.coverage)
   );
@@ -79,7 +80,7 @@ export function nativeInterfaceSupport(assembly: MultimerData | null | undefined
   }
   const cached = nativeInterfaceMemo.get(exp)?.get(gene);
   if (cached) return cached;
-  const native = exp.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal");
+  const native = mergeObserved(exp.partners.map(p => toView(p, gene))).filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal" && p.context !== "peptide");
   if (!native.length) return remember(exp, gene, { status: "none", reason: null, byResidue: none });
   const ranges: ReadonlyMap<string, ObservedRanges> | null = exp.coverageChecked && exp.coverage ? new Map(Object.entries(exp.coverage)) : null;
   // An entry with the residue at its interface models it, so `k` bounds the count from below.
@@ -91,7 +92,7 @@ export function nativeInterfaceSupport(assembly: MultimerData | null | undefined
       const k = p.support[i] ?? 0;
       if (k <= 0) return;
       const list = byResidue.get(residue) ?? [];
-      list.push({ label: observedLabel(p, gene), k, n: modelling(p.pdbEntries, residue, k) });
+      list.push({ label: p.label, k, n: modelling(p.pdbEntries, residue, k) });
       byResidue.set(residue, list);
     });
   }

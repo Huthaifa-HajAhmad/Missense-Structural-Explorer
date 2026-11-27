@@ -8,11 +8,11 @@ import { PackingTable } from "./PackingTable";
  * energy components of ΔΔG, side-chain movement, clashes, contacts and surface area. It sits beside
  * the stability estimate because it comes from the same FoldX run, and like it, it is not an ACMG input.
  */
-export function PackingView({ position, ...input }: PackingEvidenceInput & { position: number | null }) {
+export function PackingView({ position, unit = "kcal/mol", ...input }: PackingEvidenceInput & { position: number | null }) {
   const { foldingEnergetics, structuralDiff, metrics, isFolding, foldingStatus, foldingError, site } = input;
   const packing = useMemo(
-    () => buildPackingEvidence({ foldingEnergetics, structuralDiff, metrics, isFolding, foldingStatus, foldingError, site }),
-    [foldingEnergetics, structuralDiff, metrics, isFolding, foldingStatus, foldingError, site]
+    () => buildPackingEvidence({ foldingEnergetics, structuralDiff, metrics, isFolding, foldingStatus, foldingError, site, unit }),
+    [foldingEnergetics, structuralDiff, metrics, isFolding, foldingStatus, foldingError, site, unit]
   );
   return (
     <div className="pkg-view" data-testid="energetics-packing">

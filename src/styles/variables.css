@@ -106,6 +106,9 @@
    * ~5.7:1 while staying recognisably terracotta.
    */
   --cs-text-accent:   #A24E33;
+  /* Primary button fill & ink: #FFFFFF on #A24E33 reaches 5.71:1 WCAG AA (audit finding F14; #C46849 is 3.79:1). */
+  --cs-btn-primary-bg: #A24E33;
+  --cs-btn-primary-ink: #FFFFFF;
 
   /* pLDDT quality colors */
   --cs-plddt-vhigh:   #2055FF;   /* ≥90 — deep blue */

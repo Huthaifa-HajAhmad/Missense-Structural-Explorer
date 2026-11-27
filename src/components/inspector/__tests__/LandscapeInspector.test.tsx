@@ -233,9 +233,9 @@ describe("LandscapeInspector", () => {
     } } }));
     const { container } = render(<LandscapeInspector analysisResult={result} />);
     const local = screen.getByRole('region', { name: 'Local evidence for selected residue' });
-    expect(local.textContent).toContain('2 review stars');
+    expect(local.textContent).toContain('2 of 4 review stars');
     if (count === 2) {
-      expect(local.textContent).toContain('1 review star');
+      expect(local.textContent).toContain('1 of 4 review stars');
       expect(local.textContent).toContain('Benign');
       expect(container.querySelector('.lsr-context-source')?.textContent).toContain('2 queried ClinVar records');
     }
@@ -252,8 +252,8 @@ describe("LandscapeInspector", () => {
     const { container } = render(<LandscapeInspector analysisResult={result} />);
     expect(screen.getAllByText("p.Asp116Gly Pathogenic (queried)")).toHaveLength(1);
     const records = screen.getByText("2 queried ClinVar records").closest("details")!;
-    expect(records.textContent).toContain("2 review stars");
-    expect(records.textContent).toContain("1 review star");
+    expect(records.textContent).toContain("2 of 4 review stars");
+    expect(records.textContent).toContain("1 of 4 review stars");
     expect(container.querySelector('.lsr-selection-heading')?.textContent).toContain('D116G');
   });
 
@@ -279,7 +279,7 @@ describe("LandscapeInspector", () => {
       } as any)
     );
     render(<LandscapeInspector analysisResult={result} />);
-    expect(screen.getByText(/p\.Asp116Gly Pathogenic \(queried\).*2 review stars/)).toBeTruthy();
+    expect(screen.getByText(/p\.Asp116Gly Pathogenic \(queried\).*2 of 4 review stars/)).toBeTruthy();
     const others = screen.getByText("1 other substitution record").closest("details")!;
     expect(others.open).toBe(false);
     fireEvent.click(screen.getByText("1 other substitution record"));

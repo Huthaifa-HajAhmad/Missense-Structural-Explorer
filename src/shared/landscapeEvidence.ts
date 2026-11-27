@@ -21,6 +21,7 @@ import {
 } from "./thresholds/calibration";
 import type { LandscapeContext, LandscapeMeta, LandscapeResidueItem } from "./contracts";
 import { AMINO_ACID_3_TO_1 } from "./aminoAcids";
+import { formatRegionalOe } from "./thresholds/calibration.ts";
 
 export type LandscapeTool = "revel" | "alphaMissense";
 export type SummaryMode = "mean" | "max";
@@ -581,7 +582,7 @@ function contextSentence(input: LandscapeFindingInput): string | null {
     const region = context.regions.find((r) => target.pos >= r.start && target.pos <= r.end);
     parts.push(
       region
-        ? `regional missense O/E ${region.oe ?? "—"} for ${region.start}–${region.end} (${context.regionsBasis})`
+        ? `regional missense O/E ${region.oe == null ? "—" : formatRegionalOe(region.oe)} for ${region.start}–${region.end} (${context.regionsBasis})`
         : context.regions.length
           ? `outside every constrained sub-region (${context.regionsBasis})`
           : "no regional missense constraint call for this gene"
@@ -694,3 +695,15 @@ export const REGIONAL_MAPPING_LIMIT = {
   label: "Regional O/E withheld",
   detail: "This run cannot verify the transcript-to-protein mapping needed to place regional O/E on this residue axis. No regional value is assigned. Re-running may help a temporary data failure, but may not resolve a transcript mismatch."
 };
+
+/** Run statuses that say the gnomAD intervals cannot be placed on this protein axis; the header withholds O/E for them too. */
+const AXIS_UNPLACEABLE_RUN_STATUSES = new Set(["unverified-locus", "transcript-mismatch"]);
+
+/**
+ * The Landscape withholds regional O/E when the run did, so MANE-numbered gnomAD intervals are not drawn
+ * on a UniProt residue axis (ABCG1: the MANE protein is 666 residues, the UniProt entry 678).
+ */
+export function withholdRegionalWhenRunDid(context: LandscapeContext | null, runRegionalStatus: string | null | undefined): LandscapeContext | null {
+  if (!context || !runRegionalStatus || !AXIS_UNPLACEABLE_RUN_STATUSES.has(runRegionalStatus)) return context;
+  return { ...context, regions: null, regionsStatus: "withheld-mapping" };
+}

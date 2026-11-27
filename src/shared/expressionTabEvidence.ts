@@ -85,8 +85,13 @@ export function buildExpressionFinding(data: AdultExpressionResponse | null, loa
 export type SourceFact = { key: string; label: string; value: string; sub: string; tone: 'ok' | 'muted' };
 type Slot<T> = { status: 'loading' | 'error' | 'ready'; data: T | null } | undefined;
 
+/** The variant's pext placement, as the fact strip and the pext reading read it. */
+export interface PextFactInput {
+  load: 'loading' | 'error' | 'ready' | null; status: string | null;
+  location: { state: PextLocation; region: PextRegion | null; index: number }; regionCount: number;
+}
 /** Why the variant has no pext value, in the words the fact strip shows. */
-const PEXT_LOCATION_NOTE: Partial<Record<PextLocation, string>> = {
+export const PEXT_LOCATION_NOTE: Partial<Record<PextLocation, string>> = {
   'no-locus': 'No verified GRCh38 position',
   'no-gene-locus': 'No gene locus in this source',
   'no-region': 'Outside the coding regions',
@@ -99,7 +104,7 @@ export function buildSourceFacts(input: {
   adult: ExpressionFinding;
   developmental: Slot<{ status: string; counts: { includedSamples: number; includedDonors: number } | null }>;
   hpa: Slot<{ status: string; rna: { specificity: string | null } | null; protein: { evidence: string | null } | null }>;
-  pext: { load: 'loading' | 'error' | 'ready' | null; status: string | null; location: { state: PextLocation; region: PextRegion | null; index: number }; regionCount: number };
+  pext: PextFactInput;
 }): SourceFact[] {
   const state = (s: Slot<unknown>, noun: string, installNoun?: string) => {
     if (!s || s.status === 'loading') return { value: 'Running', sub: `Reading ${noun}.` };
@@ -119,11 +124,12 @@ export function buildSourceFacts(input: {
   const existence = input.hpa?.data?.protein?.evidence;
   return [
     { key: 'adult', label: 'Adult tissues', tone: adult.state === 'ready' ? 'ok' : 'muted',
-      value: adult.state === 'ready' ? `${adult.sampledTissues} sampled` : adult.state === 'loading' ? 'Running' : adult.state === 'error' ? 'Provider error' : 'No result',
+      value: adult.state === 'ready' ? `${adult.sampledTissues} tissues` : adult.state === 'loading' ? 'Running' : adult.state === 'error' ? 'Provider error' : 'No result',
       sub: 'GTEx bulk RNA-seq medians' },
     { key: 'pediatric', label: 'Pediatric', tone: dev ? 'muted' : 'ok',
       value: dev ? dev.value : `${counts?.includedSamples ?? 0} samples`, sub: dev ? dev.sub : `${counts?.includedDonors ?? 0} donors, dGTEx public cohorts` },
-    { key: 'hpa', label: 'Protein Atlas', tone: hpa ? 'muted' : 'ok',
+    // The atlas's tissue class is an RNA measure, so the label says so next to its value.
+    { key: 'hpa', label: 'Human Protein Atlas (RNA)', tone: hpa ? 'muted' : 'ok',
       value: hpa ? hpa.value : input.hpa?.data?.rna?.specificity ?? 'Not reported',
       sub: hpa ? hpa.sub : `RNA tissue class; protein existence: ${existence ? sentenceStart(existence) : 'not reported'}` },
     { key: 'pext', label: 'At the variant', tone: region ? 'ok' : 'muted',

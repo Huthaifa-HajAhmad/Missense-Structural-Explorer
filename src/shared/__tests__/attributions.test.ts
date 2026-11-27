@@ -191,9 +191,10 @@ describe("attribution registry", () => {
       // literal in this repository. It IS called, on every narrative request.
       "generativelanguage.googleapis.com":
         "the Gemini endpoint; the URL is constructed inside @google/genai, not in this repo",
-      // This deployment's own public origin, listed in the CORS allowlist. It is not called
-      // by the server; it is where the server is reached.
-      "missense-resolve.duckdns.org": "this workspace's own public origin, not an outbound call"
+      // This deployment's own public origin and edge Worker, listed in CORS / invite-link defaults.
+      // Neither is called outbound by the server; they are where the server is reached.
+      "missense-resolve.duckdns.org": "this workspace's own public origin, not an outbound call",
+      "missense-resolve-edge.pedigreepro.workers.dev": "this workspace's own public Cloudflare Worker edge address, not an outbound call"
     };
     const localHosts = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 

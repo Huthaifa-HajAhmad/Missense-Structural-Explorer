@@ -60,24 +60,25 @@ function RuleChip({ ev }: { ev: SplicingEvidence }) {
   if (rule.state === "pending") {
     return <span className="ev-tier spl-verdict" data-tone="neutral">{ENGINE_STATE_LABELS.running}</span>;
   }
+  // Splicing BP4 is never recorded for a missense variant, so it is shown as not counted, not as a green call.
+  if (rule.code?.startsWith("BP4")) {
+    return (
+      <span className="ev-tier spl-verdict spl-verdict--unapplied" data-tone="neutral" data-testid="splicing-verdict" title="Splicing BP4 is not recorded for missense variants.">
+        Not counted
+      </span>
+    );
+  }
   if (rule.code) {
-    const appliedFromSplicing = rule.code.startsWith("PP3") && engine.known && Boolean(engine.code?.startsWith("PP3")) && Boolean(engine.fromSplicing);
+    const appliedFromSplicing = engine.known && Boolean(engine.code?.startsWith("PP3")) && Boolean(engine.fromSplicing);
     const dashClass = appliedFromSplicing ? "" : " spl-verdict--unapplied";
-    const isPp3 = rule.code.startsWith("PP3");
     const codeText = formatEvidenceCode(rule.code);
-    const title = isPp3
-      ? `${policy.sourceLabel} splicing ${codeText}: applied once by the engine when PVS1 is absent.`
-      : `Splicing BP4 (${policy.sourceLabel}) clears the missense BP4 gate; splicing BP4 alone is not recorded for missense variants.`;
-    const aria = isPp3
-      ? `${codeText} for splicing impact, supported by the ${policy.sourceLabel} splicing rule (applied once when PVS1 is absent)`
-      : `BP4 for splicing impact, clears the missense BP4 gate (${policy.sourceLabel}, not recorded alone)`;
     return (
       <span
         className={`ev-tier chip-code spl-verdict${dashClass}`}
-        data-tone={isPp3 ? "danger" : "good"}
+        data-tone="danger"
         data-testid="splicing-verdict"
-        title={title}
-        aria-label={aria}
+        title={`${policy.sourceLabel} splicing ${codeText}: applied once by the engine when PVS1 is absent.`}
+        aria-label={`${codeText} for splicing impact, supported by the ${policy.sourceLabel} splicing rule (applied once when PVS1 is absent)`}
       >
         {codeText} · splicing
       </span>
@@ -505,7 +506,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
             <div className="spl-fact">
               <dt>Engine record</dt>
               <dd><EngineFact ev={ev} /></dd>
-              <dd className="spl-fact__sub">Primary missense predictor · SpliceAI ≥ 0.20 blocks BP4</dd>
+              <dd className="spl-fact__sub">{ev.engine.fromSplicing ? "Set by the splicing rule" : "Missense call from the In-silico predictors tab; splicing adds none here"}</dd>
             </div>
           </dl>
         </div>
@@ -538,7 +539,8 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
                 <div className="spl-geo__lead spl-geo__lead--compact">
                   <p className="spl-geo__lead-label">Distance to nearest splice junction</p>
                   <p className="spl-geo__lead-position">
-                    <strong className="spl-mono">{positionText} from the {g.junction}</strong>
+                    <strong><span className="spl-mono">{Math.abs(g.position)} bases</span> from the {g.junction}</strong>{" "}
+                    (variant at <span className="spl-mono">{positionText}</span>)
                   </p>
                   <p className="spl-geo__lead-phrase">{g.positionPhrase}.</p>
                   <p className="spl-geo__lead-status">
@@ -553,9 +555,8 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange, url
                 {map ? (
                   <>
                     <div className="spl-map-controls">
-                      <span>Reporting window: {ev.spliceai.windowText}</span>
                       <label><input type="checkbox" checked={showSmallSignals} onChange={e => setShowSmallSignals(e.target.checked)} /> Show non-zero signals below {SPLICE_MAP_FLOOR}</label>
-                      <span>Display filter: {showSmallSignals ? "Δ > 0" : `Δ ≥ ${SPLICE_MAP_FLOOR}`} · scores remain in the readings</span>
+                      <span>{showSmallSignals ? "All non-zero scores are shown." : `Scores below ${SPLICE_MAP_FLOOR} are hidden.`} They are still listed in the readings below.</span>
                     </div>
                     <div className="spl-geo__figure">
                       {/* Reset geometry-specific view state on transcript changes; re-scoring the same transcript retains it. */}

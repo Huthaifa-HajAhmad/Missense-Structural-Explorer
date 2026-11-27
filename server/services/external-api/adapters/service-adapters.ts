@@ -409,7 +409,7 @@ export class AlphaGenomeAdapter implements ExternalServiceAdapter<any, any> {
         latencyMs,
         message: hasKey
           ? `AlphaGenome Bridge Active (${alphagenomeCache.size} in cache)`
-          : "Standby (API Key Required)",
+          : "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.",
         timestamp: new Date().toISOString()
       };
     } catch (err: any) {

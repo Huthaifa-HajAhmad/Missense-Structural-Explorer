@@ -131,10 +131,5 @@ The biophysical properties are derived and normalized (0–100 scale) from estab
 
 ---
 
-## 9. ESM Representation Models & ESM3 Embedding Shift
-To capture sequence-context constraints, the diagnostic pipeline integrates deep transformer-based protein representations:
-
-* **ESMC-6B & VESM-150M zero-shot sequence constraints**: Renders actual, non-fabricated likelihoods ($P_{wt}$, $P_{mut}$), log-likelihood ratios ($\Delta$ LLR), zero-shot mutant percentile rank, and positional Shannon entropy in bits, computed from the model logits.
-* **ESM3 embedding shift**: The per-residue cosine distance (1 − cosine similarity) between wild-type and variant ESM3 embeddings (`tools/model_server_app/routers/esm3.py`), banded with the app's own `THRESHOLDS.esm3Drift` marks. It is a language-model representation change; it does not measure allostery, motion or structural drift.
-* **Generative Local Coordinate Refinement**: Leverages ESM3's structural track and coordinate masking to perform localized mutant sidechain conformation refinement, aligning with standard biophysical simulations.
-
+## 9. Protein language models (retired)
+The runtime protein language models (ESM-2, ESM3, ESMC, VESM, SaProt) and the perturbation tab were retired on 2026-11-18 (`doc/PROTEIN_LANGUAGE_MODELS_DECISION.md`). ESM1b remains only as a precomputed dbNSFP score in the in-silico predictor order. Packing and local-environment readings moved to Energetics.

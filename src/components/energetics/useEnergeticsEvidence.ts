@@ -49,8 +49,9 @@ export function useEnergeticsEvidence(
         plddt,
         hidePending,
         uniprotId,
+        unit,
       }),
-    [foldingDdG, foldingStatus, foldingEnergetics, thermompnnStatus, thermompnnError, foldingError, isFolding, plddt, hidePending, uniprotId]
+    [foldingDdG, foldingStatus, foldingEnergetics, thermompnnStatus, thermompnnError, foldingError, isFolding, plddt, hidePending, uniprotId, unit]
   );
   return { evidence, unit };
 }

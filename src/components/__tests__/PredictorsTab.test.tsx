@@ -212,7 +212,7 @@ describe("PredictorsTab", () => {
   it("does not call popEVE −3.93 deleterious", () => {
     renderTab(gzf1());
     const row = screen.getByTestId("predictor-popeve");
-    expect(row.textContent).toMatch(/Above cut-point/);
+    expect(row.textContent).toMatch(/Not deleterious \(above −4\.617\)/);
     expect(row.textContent).not.toMatch(/Deleterious/);
   });
 
@@ -419,8 +419,40 @@ describe("PredictorsTab", () => {
     }));
     expect(screen.getByTestId("predictor-cadd").textContent).not.toContain("not counted");
     fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
-    expect(screen.getByTestId("ladder-cadd").textContent).toContain("sets PP3/BP4");
+    expect(screen.getByTestId("ladder-cadd").textContent).toContain("Sets PP3/BP4");
     expect(screen.getByTestId("ladder-cadd").textContent).not.toContain("not counted");
   });
 });
 
+
+describe("PredictorsTab — one status per tool, and the withheld reason first", () => {
+  const multipleCandidates = () => ({
+    ...gzf1(),
+    predictorData: {
+      caddPhred: null, amPathogenicity: 0.835, amClass: "likely_pathogenic", source: "Ensembl VEP (GRCh38)",
+      locusResolution: {
+        route: "fallback", canonicalBy: null, retryable: false, failureKind: "multiple-candidates", steps: [],
+        candidates: [
+          { grch37Id: null, id: "4-1804392-G-C", canonicalBy: "protvar", retryable: false, caddPhred: 24.5, caddSource: "ProtVar" },
+          { grch37Id: null, id: "4-1804392-G-A", canonicalBy: "protvar", retryable: false, caddPhred: 25.7, caddSource: "ProtVar" },
+        ],
+      },
+    },
+  });
+
+  it("gives each predictor the same status text in the readings table", () => {
+    renderTab(gzf1());
+    expect(screen.getByTestId("predictor-revel").textContent).toContain("Sets PP3/BP4");
+    expect(screen.getByTestId("predictor-bayesdel").textContent).toContain("Calibrated, not used (an earlier tool answered)");
+    expect(screen.getByTestId("predictor-cadd").textContent).toContain("Published band, not counted");
+    expect(screen.getByTestId("predictor-popeve").textContent).toContain("Context only, not counted");
+  });
+
+  it("does not present the withheld REVEL call as the one that sets PP3/BP4", () => {
+    renderTab(multipleCandidates());
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
+    const sub = within(screen.getByTestId("predictor-chain-row")).getByText(/multiple nucleotide alleles/);
+    expect(sub.textContent).not.toMatch(/first calibrated tool/);
+    expect(screen.getByTestId("predictor-chain-row").textContent).not.toMatch(/first calibrated tool/);
+  });
+});

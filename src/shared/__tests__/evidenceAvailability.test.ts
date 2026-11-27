@@ -159,7 +159,7 @@ describe("credential faults reach the credential action", () => {
     "AlphaGenome API Key is invalid or expired.",
     "AlphaGenome API Key lacks permission to query Atlas.",
     "AlphaGenome endpoint not configured",
-    "AlphaGenome Atlas: Key Required / Standby",
+    "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.",
   ])("%s", (message) => {
     // A 401 or PERMISSION_DENIED is not a provider fault and a retry cannot fix it. The first
     // revision routed all of these to `upstream-error` + retry, so the user re-evaluated forever.

@@ -248,7 +248,7 @@ describe("EnergeticsInspector — engines without a value", () => {
       foldingStatus: "success",
     });
     const note = screen.getByTestId("energetics-excluded-template");
-    expect(note).toHaveTextContent("None of the 5 solved structures spanning residue 358 has coordinates for it, so this run used the AlphaFold model");
+    expect(note).toHaveTextContent("None of the 5 entries that span residue 358 has coordinates for it, so this run used the AlphaFold model");
     expect(note).not.toHaveTextContent("wild type");
   });
 

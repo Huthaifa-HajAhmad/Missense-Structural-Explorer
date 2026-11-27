@@ -115,7 +115,7 @@ describe("AlphaGenome Bridge Service Tests", () => {
         expect(res?.status).toBe("unavailable");
         expect(res?.aviPhred).toBeNull();
         expect(res?.atlasUrl).toContain("alphagenome/atlas/track-predictions");
-        expect(res?.message).toContain("Key Required / Standby");
+        expect(res?.message).toBe("AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.");
       } finally {
         if (originalKey) process.env.ALPHAGENOME_API_KEY = originalKey;
         if (originalUrl) process.env.ALPHAGENOME_API_URL = originalUrl;
@@ -246,10 +246,10 @@ describe("AlphaGenome Bridge Service Tests", () => {
       delete process.env.ALPHAGENOME_API_KEY;
 
       try {
-        // 1. Initial query without API key returns Standby
+        // 1. Initial query without API key reports that AlphaGenome is not set up
         const standbyRes = await fetchAlphaGenome("chr19", 45000000, "A", "G");
         expect(standbyRes?.status).toBe("unavailable");
-        expect(standbyRes?.message).toContain("Standby");
+        expect(standbyRes?.message).toBe("AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.");
 
         // 2. Mock provider or gRPC response for subsequent credentialed call
         setAlphaGenomeMockProvider(async () => ({
@@ -324,7 +324,7 @@ describe("AlphaGenome Bridge Service Tests", () => {
         expect(res.status).toBe("unavailable");
         expect(res.atlasLocusUrl).toContain("chr9");
         expect(res.atlasLocusUrl).toContain("128225895-128226050");
-        expect(res.message).toContain("Key Required / Standby");
+        expect(res.message).toBe("AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.");
         expect(res.positions).toEqual([]);
       } finally {
         if (originalKey) process.env.ALPHAGENOME_API_KEY = originalKey;

@@ -95,7 +95,7 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   const partnerSummary = summarisePartners(sorted, groups, uniprotId);
   const partnerSub = partnerSubtitle([...store.rows.values()], partnerSummary.binding, partnerSummary.otherSpecies);
 
-  const track = buildTrack({ features, position, sequenceLength, resLabel, sites, native, fibrils: observed.fibrils, model, residueName });
+  const track = buildTrack({ features, position, sequenceLength, resLabel, sites, native, fibrils: [...observed.fibrils, ...observed.peptides], model, residueName });
   const binding = readBinding({ input, iface, native, solvedPending: observed.availability.state === "pending", chainCount: chains.length, gene, resLabel, assemblyLabel: cur.rec.label, monomer: cur.rec.kind === "monomer", coverageChecked: observed.coverageChecked });
   const finding = readFinding({
     iface, model, native, sites, gene, resLabel,

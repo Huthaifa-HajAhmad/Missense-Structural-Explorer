@@ -676,6 +676,7 @@ export const ABCG1_INTERFACES: any = {
    ],
    "entryKinds": "ok",
    "crystalChecked": true,
+   "peptideChecked": true,
    "coverage": {"7fdv":[[72,87],[96,333],[401,675]],"7oz1":[[74,88],[96,345],[398,676]],"7r8c":[[72,86],[100,347],[397,678]],"7r8d":[[72,86],[100,347],[397,678]],"7r8e":[[72,88],[98,347],[398,678]]},
    "coverageChecked": true
   },

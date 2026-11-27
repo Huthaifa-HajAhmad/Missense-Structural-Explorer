@@ -73,6 +73,11 @@ export function isUnmeasuredEnvironment(value: string): boolean {
 export type BurialWord = "core" | "boundary" | "surface";
 
 /** How the reported word was decided. Only a measured accessible surface decides it now. */
+/** The one name for a band, shown on every surface (the 3D card, the residue shift text and its trace). */
+export function burialWordLabel(word: BurialWord): string {
+  return BURIAL_LABELS[word];
+}
+
 export type BurialBasis = "solvent-accessibility" | "none";
 
 export interface BurialIndicator {

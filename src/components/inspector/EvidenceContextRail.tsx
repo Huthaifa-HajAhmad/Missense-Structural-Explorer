@@ -5,6 +5,8 @@ import { GeneDiseaseRail } from './GeneDiseaseRail';
 import { Step, Provenance, slotState, type Slot } from './RailParts';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { REVIEW_SYSTEMS, ONSET_LABELS } from '../../shared/phenotypeFrame';
+import { pextSiteFromVariantId, locatePext } from '../../shared/pext';
+import { isFallbackLocus } from '../../shared/locusResolution';
 import { expressionWorkspaceFinding } from '../../shared/expressionWorkspaceFinding';
 import { useEvidenceWorkspace } from '../evidence/EvidenceWorkspace';
 import { useContextWorkspaceRead } from '../../hooks/useContextWorkspace';
@@ -22,7 +24,13 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
   const { context: c, model, rows, speciesAnswer } = useContextWorkspaceRead(analysisResult, tab);
   const systems = c.selection.systems;
   const workspace = useEvidenceWorkspace(tab);
-  const finding = expressionWorkspaceFinding({ section: workspace.section, adult: c.expressionLoad, developmental: c.developmentalLoad, systems, cohort: workspace.cohort });
+  const site = pextSiteFromVariantId(analysisResult.predictorData?.gnomadVariantId, analysisResult.predictorData?.gnomadVariantAssembly, isFallbackLocus(analysisResult));
+  const reading = { section: workspace.section, adult: c.expressionLoad, developmental: c.developmentalLoad, systems, cohort: workspace.cohort };
+  const finding = expressionWorkspaceFinding(workspace.view === 'protein' ? { ...reading, measure: 'protein', hpa: c.hpaLoad }
+    : workspace.view === 'pext' ? { ...reading, measure: 'pext', pext: {
+      load: c.pextLoad?.status ?? null, status: c.pextLoad?.data?.status ?? null,
+      location: locatePext(c.pextLoad?.data ?? null, site), regionCount: c.pextLoad?.data?.regions.length ?? 0,
+    } } : reading);
   // A completed read that found no mouse ortholog must not display "No result": the card explains
   // "not applicable" plainly, and the rail now says the same thing instead of implying an empty record.
   const impcState = (() => {
@@ -33,7 +41,7 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
     // resolve ("not-found") says nothing about any ortholog.
     if (payload?.status !== 'ready') return { label: 'Not applicable — gene not resolved', tone: 'muted' as const };
     if (!payload.impc) return { label: 'Not applicable — no mouse ortholog', tone: 'muted' as const };
-    if (payload.impc.status === 'ready') return { label: 'Read', tone: 'good' as const };
+    if (payload.impc.status === 'ready') return { label: 'Available', tone: 'good' as const };
     if (payload.impc.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' as const };
     return { label: ENGINE_STATE_LABELS['no-result'], tone: 'muted' as const };
   })();
@@ -53,7 +61,7 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
   const trace = <section className="rail-section" aria-labelledby="ctx-rail-trace"><h3 className="eyebrow" id="ctx-rail-trace">Review trace</h3>
       <ol className="rail-steps" data-testid="context-trace">
         <Step n={1} label="Disease choice">{model.selected ? <>{model.selected.label}<span className="rail-step__sub">{model.selected.inheritance.label}</span></> : 'No disease selected.'}</Step>
-        <Step n={2} label="Review systems">{systems.length ? systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') : 'All systems'}<span className="rail-step__sub">{systems.length ? 'Local display grouping, not an ontology equivalence.' : 'None chosen. Local display grouping, not an ontology equivalence.'}</span></Step>
+        <Step n={2} label="Body systems">{systems.length ? systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') : 'All systems'}<span className="rail-step__sub">{systems.length ? 'Local display grouping, not an ontology equivalence.' : 'None chosen. Local display grouping, not an ontology equivalence.'}</span></Step>
         {/* Onset changes no species reading (animal records carry no age here), so the step is Expression's only. */}
         {!species && <Step n={3} label="Disease onset">{ONSET_LABELS[c.selection.onset]}<span className="rail-step__sub">Kept separate from sampled age.</span></Step>}
         <Step n={species ? 3 : 4} label="Reading">{species ? speciesAnswer?.headline : <>{finding.headline}<span className="rail-step__sub">{finding.detail}</span></>}</Step>
@@ -66,7 +74,7 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
     {/* The trace's last step states the ACMG boundary, so no separate boundary line repeats it. */}
     {trace}
     {!species && model.assertions.some(a => a.adverse) && <p className="rail-step__warn" role="note">The selected disease has disputed, refuted or no-known-relationship assertions. Expression cannot resolve that dispute.</p>}
-    <section className="rail-section" aria-labelledby="ctx-rail-sources"><h3 className="eyebrow" id="ctx-rail-sources">{species ? 'Sources read' : 'Source availability'}</h3>
+    <section className="rail-section" aria-labelledby="ctx-rail-sources"><h3 className="eyebrow" id="ctx-rail-sources">Sources</h3>
       <dl className="rail-kv rail-kv--sources" data-testid="context-sources">{sources.map(s => { const st = s.state ?? slotState(s.slot); return <div className="rail-kv__row" key={s.name}><dt>{s.name}</dt><dd><span className="ev-tier" data-tone={st.tone}>{st.label}</span></dd></div>; })}</dl>
     </section>
     <section className="rail-section" aria-labelledby="ctx-rail-method"><h3 className="eyebrow" id="ctx-rail-method">Method</h3>
@@ -79,8 +87,7 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
       </ul></details> : <div className="rail-notes xp-rail-notes"><ul>
         <li>Adult GTEx medians are bulk RNA-seq per tissue; counts are samples, not independent donors or a gene-specific detection count.</li>
         <li>No expression cut-point is applied. Zero is a measurement; missing coverage is not a low reading.</li>
-        <li>dGTEx uses medians across donors after within-donor medians for repeated samples. Public age cohorts are independent of disease onset.</li>
-        <li>Pext is the share of the gene’s expression from transcripts that include a coding base. It is not the expression of the transcript carrying this missense.</li>
+        <li>dGTEx uses medians across donors after within-donor medians for repeated samples.</li>
       </ul></div>}
       {!!systems.length && (species
         ? <details className="rail-notes"><summary>What each system covers</summary><ul>{systems.map(id => { const s = REVIEW_SYSTEMS.find(r => r.id === id)!; return <li key={id}><strong>{s.label}</strong>: {s.anatomy}</li>; })}</ul></details>

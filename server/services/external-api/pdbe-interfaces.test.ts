@@ -139,6 +139,8 @@ describe("fetchPdbeInterfaces", () => {
     if (lookup.status !== "ok") return;
     expect(lookup.entryKinds).toBe("ok");
     expect(lookup.crystalChecked).toBe(true);
+    // Coverage endpoint returned 500 in this mock, so peptide separation could not run.
+    expect(lookup.peptideChecked).toBe(false);
     expect(graphql[0]).toMatch(/7VZF/);
     const self = lookup.partners.filter(p => p.accession === "P00441");
     expect(self.map(p => [p.context, p.pdbEntries.length])).toEqual([["native", 2], ["fibril", 2]]);
@@ -174,12 +176,106 @@ describe("fetchPdbeInterfaces", () => {
     expect(lookup.status).toBe("ok");
     if (lookup.status !== "ok") return;
     expect(lookup.crystalChecked).toBe(true);
+    // Coverage endpoint returned 500 in this mock, so peptide separation could not run.
+    expect(lookup.peptideChecked).toBe(false);
     const self = lookup.partners.filter(p => p.accession === "P00441");
     expect(self.map(p => [p.context, p.pdbEntries])).toEqual([
       ["native", ["2c9v"]],
       ["fibril", ["7vzf", "9jbo"]],
       ["crystal", ["1spd"]],
     ]);
+  });
+
+  it("sets peptideChecked true only when PDBe coverage answers for every native entry", async () => {
+    const withCoverage = (entries: Array<{ accession: string; start: number; end: number }>) => {
+      clearPdbeInterfaceCache();
+      vi.restoreAllMocks();
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (u: any) => {
+        const s = typeof u === "string" ? u : u.toString();
+        if (s.includes("interface_residues")) return res(SOD1_IFACE);
+        if (s.includes("data.rcsb.org/graphql")) {
+          return res({
+            data: {
+              entries: [
+                { rcsb_id: "7VZF", struct: { title: "amyloid fibril" }, struct_keywords: { pdbx_keywords: "PROTEIN FIBRIL" } },
+                { rcsb_id: "9JBO", struct: { title: "amyloid filament" }, struct_keywords: { pdbx_keywords: "PROTEIN FIBRIL" } },
+                { rcsb_id: "1SPD", struct: { title: "SOD1" }, struct_keywords: { pdbx_keywords: "OXIDOREDUCTASE" } },
+                { rcsb_id: "2C9V", struct: { title: "SOD1" }, struct_keywords: { pdbx_keywords: "OXIDOREDUCTASE" } },
+              ],
+              assemblies: [
+                { rcsb_id: "1SPD-1", pdbx_struct_assembly: { oligomeric_details: "monomeric" }, rcsb_assembly_info: { polymer_entity_instance_count: 1 } },
+                { rcsb_id: "2C9V-1", pdbx_struct_assembly: { oligomeric_details: "dimeric" }, rcsb_assembly_info: { polymer_entity_instance_count: 2 } },
+              ],
+            },
+          });
+        }
+        if (s.includes("uniprot/unipdb")) {
+          return res({
+            P00441: {
+              length: 154,
+              data: entries.map(e => ({ accession: e.accession, residues: [{ startIndex: e.start, endIndex: e.end, observed: "Y" }] })),
+            },
+          });
+        }
+        if (s.includes("rest.uniprot.org/uniprotkb/accessions")) return res({ results: [] });
+        return res({}, 500);
+      });
+    };
+
+    // All biological native entries (2c9v for P00441 and 3gtv for P08228) covered → peptideChecked=true.
+    withCoverage([
+      { accession: "2c9v", start: 1, end: 154 },
+      { accession: "3gtv", start: 1, end: 154 },
+    ]);
+    const covered = await fetchPdbeInterfaces("P00441");
+    expect(covered.status).toBe("ok");
+    if (covered.status === "ok") expect(covered.peptideChecked).toBe(true);
+
+    // Missing coverage for native entry 3gtv → cannot assert peptideChecked=true, and must not
+    // pin the incomplete coverage in cache so a fresh retry recovers peptideChecked=true.
+    withCoverage([{ accession: "2c9v", start: 1, end: 154 }]);
+    const partial = await fetchPdbeInterfaces("P00441");
+    expect(partial.status).toBe("ok");
+    if (partial.status === "ok") expect(partial.peptideChecked).toBe(false);
+
+    // Without clearing caches, a fresh complete provider response must recover peptideChecked=true.
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u: any) => {
+      const s = typeof u === "string" ? u : u.toString();
+      if (s.includes("interface_residues")) return res(SOD1_IFACE);
+      if (s.includes("data.rcsb.org/graphql")) {
+        return res({
+          data: {
+            entries: [
+              { rcsb_id: "7VZF", struct: { title: "amyloid fibril" }, struct_keywords: { pdbx_keywords: "PROTEIN FIBRIL" } },
+              { rcsb_id: "9JBO", struct: { title: "amyloid filament" }, struct_keywords: { pdbx_keywords: "PROTEIN FIBRIL" } },
+              { rcsb_id: "1SPD", struct: { title: "SOD1" }, struct_keywords: { pdbx_keywords: "OXIDOREDUCTASE" } },
+              { rcsb_id: "2C9V", struct: { title: "SOD1" }, struct_keywords: { pdbx_keywords: "OXIDOREDUCTASE" } },
+            ],
+            assemblies: [
+              { rcsb_id: "1SPD-1", pdbx_struct_assembly: { oligomeric_details: "monomeric" }, rcsb_assembly_info: { polymer_entity_instance_count: 1 } },
+              { rcsb_id: "2C9V-1", pdbx_struct_assembly: { oligomeric_details: "dimeric" }, rcsb_assembly_info: { polymer_entity_instance_count: 2 } },
+            ],
+          },
+        });
+      }
+      if (s.includes("uniprot/unipdb")) {
+        return res({
+          P00441: {
+            length: 154,
+            data: [
+              { accession: "2c9v", residues: [{ startIndex: 1, endIndex: 154, observed: "Y" }] },
+              { accession: "3gtv", residues: [{ startIndex: 1, endIndex: 154, observed: "Y" }] },
+            ],
+          },
+        });
+      }
+      if (s.includes("rest.uniprot.org/uniprotkb/accessions")) return res({ results: [] });
+      return res({}, 500);
+    });
+    const recovered = await fetchPdbeInterfaces("P00441");
+    expect(recovered.status).toBe("ok");
+    if (recovered.status === "ok") expect(recovered.peptideChecked).toBe(true);
   });
 
   it("says when RCSB could not be read, and does not cache an unchecked answer", async () => {
@@ -197,4 +293,14 @@ describe("fetchPdbeInterfaces", () => {
     await fetchPdbeInterfaces("P00441");
     expect(calls).toBe(2);
   });
+});
+
+it("separates short query peptides from whole-protein contacts", () => {
+  const partners = parsePdbeInterfaces({ P04637: { data: [{
+    accession: "P04439", name: "HLA-A", residues: [{ startIndex: 175, endIndex: 175,
+      interactingPDBEntries: [{ pdbId: "6vqo" }, { pdbId: "7xyz" }] }]
+  }] } }, "P04637");
+  const split = splitEntryContexts(partners, { fibrils: new Set(), crystals: new Set() },
+    { length: 393, entries: new Map([["6vqo", [[170, 178]]], ["7xyz", [[94, 292]]]]) });
+  expect(split.map(p => [p.context, p.pdbEntries])).toEqual([["native", ["7xyz"]], ["peptide", ["6vqo"]]]);
 });

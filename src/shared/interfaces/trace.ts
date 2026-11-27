@@ -119,7 +119,7 @@ export function readTrace(t: TraceInput): TraceStep[] {
     modelStep(t.model),
     {
       label: "Partners",
-      value: t.ppiLoading ? ENGINE_STATE_LABELS.running : partnersFailed ? ENGINE_STATE_LABELS["upstream-error"] : `${plural(t.partnerCount, "reported partner")}: ${t.partnerSub}`,
+      value: t.ppiLoading ? ENGINE_STATE_LABELS.running : partnersFailed ? ENGINE_STATE_LABELS["upstream-error"] : `${plural(t.partnerCount, "partner protein")} with binding evidence: ${t.partnerSub}`,
       sub: [partnersFailed ? sections.uniprot.reason : null, sections.intact.state === "failed" ? sections.intact.reason : null].filter(Boolean).join(" ") || undefined,
       warn: partnersFailed || sections.intact.state === "failed",
       state: t.ppiLoading ? "pending" : partnersFailed ? "failed" : "done",
@@ -127,7 +127,7 @@ export function readTrace(t: TraceInput): TraceStep[] {
     stringStep(t),
     {
       label: "Binding change",
-      value: b.state === "ok" ? `${b.valueText} on ${b.wildType?.source === "experimental" ? `PDB ${b.wildType.pdbId?.toUpperCase()}` : "a Boltz-2 wild-type model"}` : b.state === "ready" ? "Not run yet" : b.stateLabel ?? "Not measured",
+      value: b.state === "ok" ? `${b.valueText} on ${b.wildType?.source === "experimental" ? `PDB ${b.wildType.pdbId?.toUpperCase()}` : "a Boltz-2 wild-type model"}` : b.stateLabel ?? "Not measured",
       sub: b.state === "ok" ? undefined : b.reason ?? undefined,
       warn: b.state === "failed",
       state: b.state === "pending" || b.state === "running" ? "pending" : b.state === "failed" ? "failed" : "done",

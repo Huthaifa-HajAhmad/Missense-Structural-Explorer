@@ -1,6 +1,7 @@
 import React from "react";
 import type { PredictorReading } from "../../../shared/predictorEvidence";
 import { formatEvidenceCode } from "../../../shared/thresholds";
+import { edgeFormatter, fmtTick } from "../../../shared/edgeFormat";
 
 /**
  * ScoreRuler — one tool's score on its own axis, with its cut-points drawn by provenance.
@@ -22,10 +23,6 @@ function pct(value: number, min: number, max: number) {
   return Math.max(0, Math.min(100, ((value - min) / span) * 100));
 }
 
-function fmtTick(n: number) {
-  return Math.abs(n) >= 10 ? n.toFixed(1) : Number(n.toFixed(3)).toString();
-}
-
 /** Axis ends are round numbers: "50", not "50.0" beside a "0". */
 function fmtAxis(n: number) {
   return Number.isInteger(n) ? String(n) : fmtTick(n);
@@ -38,15 +35,6 @@ const GAP_PCT = 0.8;
 
 type Band = { threshold: number; strength: string; direction: string; code: string };
 type Edge = Band & { at: number };
-
-/**
- * One tool's edges keep one number of decimals, as its calibration publishes them: REVEL reads
- * "0.290" beside "0.644", not "0.29". Values of 10 or more keep one decimal (CADD "25.3").
- */
-function edgeFormatter(values: number[]) {
-  const decimals = Math.max(0, ...values.filter(v => Math.abs(v) < 10).map(v => (fmtTick(v).split(".")[1] ?? "").length));
-  return (n: number) => (Math.abs(n) >= 10 ? n.toFixed(1) : n.toFixed(decimals));
-}
 
 /** Edges closer together than one label's width share one label, in value order ("0.003 · 0.016"). */
 function groupEdges(edges: Edge[], format: (n: number) => string) {

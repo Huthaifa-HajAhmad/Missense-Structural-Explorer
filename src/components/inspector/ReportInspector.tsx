@@ -88,7 +88,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({ analysisResult
   return (
     <div className="rpt-rail" data-testid="report-rail">
       <ReportExportBar sections={exportedBlocks(doc).length} busy={exports.busy} status={exports.status} onExport={format => void exports.run(format)} />
-      <ReportReviewStatus blocks={doc.blocks} onJump={jump} />
+      <ReportReviewStatus blocks={doc.blocks} completeness={doc.completeness} onJump={jump} />
       <ReportContents doc={doc} activeSection={activeSection} onJump={jump} />
       <ReportDocumentFields placeholderTitle={doc.title} stem={stem} identity={identity} draft={draft} />
       <ReportSummaryStatus

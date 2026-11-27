@@ -31,7 +31,7 @@
  */
 import { z } from "zod";
 import { cspecPm1Schema, type CspecPm1 } from "./cspecPm1.ts";
-import { regionalBp1Code, regionalPp2Code, REGIONAL_MISSENSE_CALIBRATION, REGIONAL_MISSENSE_SOURCE } from "./thresholds/calibration.ts";
+import { formatRegionalOe, regionalBp1Code, regionalPp2Code, REGIONAL_MISSENSE_CALIBRATION, REGIONAL_MISSENSE_SOURCE } from "./thresholds/calibration.ts";
 import { PER_METHOD } from "./perBurden.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
 import type { NativeInterfaceSupport } from "./interfacesEvidence.ts";
@@ -241,8 +241,31 @@ export const HOTSPOT_SOURCES = {
   cspec: { label: "ClinGen Criteria Specification Registry", url: "https://cspec.genome.network/cspec/ui/svi/" },
   per: { label: "Pérez-Palma et al. 2020, Genome Res 30:62", url: "https://doi.org/10.1101/gr.252601.119" },
   sivley: { label: "Sivley et al. 2018, Am J Hum Genet 102:415", url: "https://pubmed.ncbi.nlm.nih.gov/29455857/" },
-  benchmark: { label: "Pre-registered benchmark (doc/HOTSPOT_3D_DECISION.md)", url: null },
+  benchmark: { label: "Pre-registered 3D benchmark, decision record", url: null },
 } as const;
+
+export type ExpertPm1Status = "specified" | "not-specified" | "loading" | "unavailable";
+
+/** A released expert panel specification with a PM1 rule covers the gene, so PM1 is the panel's to assess. */
+export function expertPm1Specified(cspec: HotspotContext["cspec"]): boolean {
+  return cspec.status === "ok" && cspec.specs.some((s) => s.released && Boolean(s.pm1));
+}
+
+/**
+ * Tri-state PM1 applicability from a store hotspot context slot so direct-to-Report exports and
+ * rails do not collapse a pending or failed CSpec lookup into generic "PM1 not met".
+ */
+export function expertPm1StatusOf(
+  load: { status?: string; data?: HotspotContext | null } | null | undefined
+): ExpertPm1Status | undefined {
+  if (!load || load.status === "idle") return undefined;
+  if (load.status === "loading") return "loading";
+  if (load.status === "error" || !load.data || load.data.cspec.status !== "ok") return "unavailable";
+  return expertPm1Specified(load.data.cspec) ? "specified" : "not-specified";
+}
+
+/** The card headline when the rows' numbering disagrees with the model; the reason is stated once, in the verdict line. */
+const NUMBERING_WITHHELD = "Withheld (numbering)";
 
 const inside = (bands: HotspotBand[], r: number) => bands.some((b) => b.start <= r && r <= b.end);
 const span = (s: number, e: number) => (s === e ? `${s}` : `${s}–${e}`);
@@ -293,10 +316,10 @@ function cspecRung(c: CspecPm1, residueLabel: string): HotspotRung {
   return { ...base, state: withPm1.length ? "read" : failedRead.length ? "failed" : "none", headline, details, source: { label: base.source.label, url: c.specs[0]?.url ?? base.source.url } };
 }
 
-function regionalRung(ctx: HotspotContext, residue: number, engine: string | null, misnumbered: string | null): HotspotRung {
+function regionalRung(ctx: HotspotContext, residue: number, engine: string | null, misnumbered: boolean): HotspotRung {
   const base = { key: "regional" as const, name: "Regional missense O/E", grade: "calibrated" as const, source: { label: REGIONAL_MISSENSE_SOURCE.short, url: `https://doi.org/${REGIONAL_MISSENSE_SOURCE.doi}` }, explain: "hotspot_regional" };
   const r = ctx.regional;
-  if (misnumbered) return { ...base, state: "not-shown", atVariant: null, bands: [], headline: misnumbered, details: [] };
+  if (misnumbered) return { ...base, state: "not-shown", atVariant: null, bands: [], headline: NUMBERING_WITHHELD, details: [] };
   if (r.status !== "available") {
     // "withheld-mapping" is not the same absence as "no interval exists": the source has data, we could not
     // place it. Reporting it as "No region" would turn an unasked question into a negative answer.
@@ -309,13 +332,9 @@ function regionalRung(ctx: HotspotContext, residue: number, engine: string | nul
     return { ...base, state, atVariant: null, bands: [], headline: r.reason ?? fallback, details: [] };
   }
   const cal = REGIONAL_MISSENSE_CALIBRATION;
-  // Near an edge two decimals can print the edge while the unrounded value sits on the other side
-  // (0.3601 prints "0.36" but is Supporting). Show the third decimal only where it changes the reading.
-  const edges = [cal.pp2.Moderate, cal.pp2.Supporting, cal.bp1.Supporting, cal.bp1.Moderate];
-  const oeText = (v: number) => (edges.some((e) => Math.abs(v - e) < 0.005) ? v.toFixed(3) : v.toFixed(2));
   const bands = r.regions
     .filter((g) => regionalPp2Code(g.oe))
-    .map((g) => ({ start: g.start, end: g.end, label: `O/E ${g.oe === null ? "unknown" : oeText(g.oe)} · ${regionalPp2Code(g.oe) === "PP2_Moderate" ? "PP2 Moderate" : "PP2 Supporting"}`, hit: g.start <= residue && residue <= g.end }));
+    .map((g) => ({ start: g.start, end: g.end, label: `O/E ${g.oe === null ? "unknown" : formatRegionalOe(g.oe)} · ${regionalPp2Code(g.oe) === "PP2_Moderate" ? "PP2 Moderate" : "PP2 Supporting"}`, hit: g.start <= residue && residue <= g.end }));
   // Two adjacent gnomAD intervals can cover one codon. Pick the first, and say so: the engine refuses the
   // ambiguity, and a silent pick would read as the engine's own answer.
   const covering = r.regions.filter((g) => g.start <= residue && residue <= g.end);
@@ -325,12 +344,12 @@ function regionalRung(ctx: HotspotContext, residue: number, engine: string | nul
   const headline = !here
     ? "The residue lies outside every mapped interval."
     : code
-      ? `The residue's interval (${span(here.start, here.end)}) has O/E ${oeText(here.oe!)}, in the calibrated ${code === "PP2_Moderate" ? "PP2 Moderate" : "PP2 Supporting"} band.`
+      ? `The residue's interval (${span(here.start, here.end)}) has O/E ${formatRegionalOe(here.oe!)}, in the calibrated ${code === "PP2_Moderate" ? "PP2 Moderate" : "PP2 Supporting"} band.`
       : bp1
-        ? `The residue's interval (${span(here.start, here.end)}) has O/E ${oeText(here.oe!)}, in the calibrated BP1 band, which the engine does not apply.`
+        ? `The residue's interval (${span(here.start, here.end)}) has O/E ${formatRegionalOe(here.oe!)}, in the calibrated BP1 band, which the engine does not apply.`
         : here.oe === null
           ? `The residue's interval (${span(here.start, here.end)}) carries no O/E (coverage withheld), so no reading is possible.`
-          : `The residue's interval (${span(here.start, here.end)}) has O/E ${oeText(here.oe)}, between the calibrated bands: no evidence either way.`;
+          : `The residue's interval (${span(here.start, here.end)}) has O/E ${formatRegionalOe(here.oe)}, between the calibrated bands: no evidence either way.`;
   // What this rung asserts at the residue follows its own bands: a no-verdict reading (BP1, which the
   // engine does not apply, or an interval with no O/E) cannot be called "outside" — the headline above
   // already says what was found, and "outside" would contradict it.
@@ -471,13 +490,13 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
   // intervals, which are placed on the rows' transcript, are not read at this residue.
   const misnumbered = ctx.numbering.status === "mismatch";
   const misnumberedText = `${ctx.numbering.mismatches} of ${ctx.numbering.checked} ClinVar/gnomAD residues differ from the model's sequence at the same number, so the variants are not placed on this protein.`;
-  const rungs = [cspecRung(ctx.cspec, residueLabel), regionalRung(ctx, residue, engine.pp2, misnumbered ? misnumberedText : null), perPublishedRung(ctx, residue), perRerunRung(ctx, residue), spatialRung(ctx, residue)];
+  const rungs = [cspecRung(ctx.cspec, residueLabel), regionalRung(ctx, residue, engine.pp2, misnumbered), perPublishedRung(ctx, residue), perRerunRung(ctx, residue), spatialRung(ctx, residue)];
   const d = ctx.distribution;
   rungs.push({
     key: "distribution", name: "Germline variants along the protein", grade: "measurement", explain: "hotspots",
     state: misnumbered ? "not-shown" : d.status === "ok" ? "read" : "failed", atVariant: null, bands: [], source: { label: ctx.clinvarSource, url: "https://gnomad.broadinstitute.org/" },
     headline: misnumbered
-      ? misnumberedText
+      ? NUMBERING_WITHHELD
       : d.status === "ok"
       ? `${d.plp.reduce((n, x) => n + x.n, 0)} ClinVar P/LP missense at ${d.plp.length} residues; ${d.gnomad.reduce((n, x) => n + x.variants, 0)} gnomAD missense at ${d.gnomad.length} residues.`
       : d.reason ?? "ClinVar or gnomAD could not be read.",
@@ -542,6 +561,7 @@ export function buildHotspotEvidence(input: HotspotInput): HotspotEvidence {
       ? `${residueLabel} lies inside no region defined by the ${answered.length} definition${answered.length === 1 ? "" : "s"} that returned a verdict here.`
       : `No definition returned a verdict at ${residueLabel}, so this residue is not placed.`;
   const rest = [
+    misnumbered ? misnumberedText : "",
     ctx.cspec.status === "ok" && ctx.cspec.specs.some((s) => s.pm1) ? "The expert panel's PM1 text is the authority; read it below." : "",
     nearestRow ? `Nearest ClinVar P/LP residue in 3D: ${nearestRow.label}, ${nearestRow.distanceA} Å (Cα–Cα on the model).` : "",
     failed.length ? `${failed.length} source${failed.length === 1 ? "" : "s"} did not answer, so this is incomplete.` : "",

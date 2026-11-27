@@ -8,9 +8,10 @@
  */
 import type { Lane, LaneKey } from "./insightsEvidence.ts";
 import { formatEvidenceCode } from "./thresholds.ts";
-import { CAVEAT_TEXT, buildPredictorEvidence } from "./predictorEvidence.ts";
+import { CAVEAT_TEXT, buildPredictorEvidence, predictorUseLabel } from "./predictorEvidence.ts";
 import { disagreementText } from "./predictorSummary.ts";
-import { energeticsSummary, type buildEnergeticsEvidence } from "./energeticsEvidence.ts";
+import { energeticsSummary, signedDdgNumber, type buildEnergeticsEvidence } from "./energeticsEvidence.ts";
+import type { EnergyUnit } from "./engineStatus.ts";
 import { buildFrequencyEvidence, formatAlleleFrequency, frequencySourceLabel, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
 import { REPORT_SOURCES, blankBlock, type ReportBlock, type ReportChip, type ReportDocumentInput, type ReportLink } from "./reportModel.ts";
 import { bold, joinText, sentence } from "./reportProse.ts";
@@ -66,18 +67,16 @@ export function computationalExtras(b: ReportBlock, input: ReportDocumentInput) 
   const rows = pe.readings
     .filter(r => r.availability.state === "available")
     .map(r => {
-      const isPrimary = (r.chainKey === pe.primary.activeTool && r.chainKey !== null)
-        || (pe.primary.activeTool === "cadd" && r.key === "cadd");
       return [
         r.name,
         `${r.scoreText}${r.unit ? ` ${r.unit}` : ""}`,
         formatEvidenceCode(r.callLabel),
-        isPrimary ? "Primary predictor" : r.chainKey !== null ? "Calibrated, fixed order" : r.group === "conservation" ? "Conservation" : "Informational",
+        predictorUseLabel(r, pe.primary),
         `${r.cutpoints.source ?? "No published calibration"}; ${r.orientation === "higher" ? "higher" : "lower"} scores indicate ${r.group === "conservation" ? "greater evolutionary constraint" : "greater predicted impact"}${r.note ? `; ${r.note}` : ""}${r.caveats.length ? `; ${r.caveats.map(c => CAVEAT_TEXT[c].detail).join("; ")}` : ""}`,
       ];
     });
   if (rows.length) {
-    b.table = { headers: ["Tool", "Score", "Reading", "Role", "Method and caveats"], rows, numeric: [1], detail: { column: 4, label: "Method" } };
+    b.table = { headers: ["Tool", "Score", "Reading", "Status", "Method and caveats"], rows, numeric: [1], detail: { column: 4, label: "Method" } };
     b.caption = "Scores are not probabilities; correlated tools are not independent evidence. Per-tool calibrated strengths describe each score, not the aggregate engine criterion.";
   }
   const disagreement = disagreementText(pe.primary);
@@ -104,13 +103,13 @@ export function populationExtras(b: ReportBlock, input: ReportDocumentInput) {
   }
 }
 
-export function stabilityExtras(b: ReportBlock, energetics: Energetics) {
+export function stabilityExtras(b: ReportBlock, energetics: Energetics, unit: EnergyUnit) {
   const rows = energetics.readings
     .filter(r => r.ddg !== null)
-    .map(r => [r.name, r.ddg! > 0 ? `+${r.ddg!.toFixed(2)}` : r.ddg! < 0 ? `−${Math.abs(r.ddg!).toFixed(2)}` : "0.00", r.callLabel ?? "Reading", r.counted ? "Counted in agreement" : "Not counted"]);
+    .map(r => [r.name, signedDdgNumber(r.ddg, unit), r.callLabel ?? "Reading", r.counted ? "Counted in agreement" : "Not counted"]);
   if (rows.length) {
-    b.table = { headers: ["Engine", "ΔΔG (kcal/mol)", "Call", "Role"], rows, numeric: [1] };
-    const s = energeticsSummary(energetics);
+    b.table = { headers: ["Engine", `ΔΔG (${unit})`, "Call", "Role"], rows, numeric: [1] };
+    const s = energeticsSummary(energetics, unit);
     // The lane keeps its own state and sentence when it read nothing (no engine counted), so the
     // report agrees with the Insights tab; the table still lists every returned value.
     if (b.status === "read") b.drafted = joinText([bold(sentence(s.lead)), s.rest.map(sentence).join(" ")]);

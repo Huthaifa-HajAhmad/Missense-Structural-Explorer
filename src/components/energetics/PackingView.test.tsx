@@ -33,3 +33,11 @@ describe('PackingView', () => {
     expect(screen.queryByTestId('pkg-phys-vdw')).toBeNull();
   });
 });
+
+describe('PackingView in kJ/mol', () => {
+  it('shows the FoldX energy terms in kJ/mol, with no kcal/mol left on the view', () => {
+    const { container } = render(<PackingView position={116} unit="kJ/mol" foldingEnergetics={NAE1_ENERGETICS} structuralDiff={NAE1_STRUCTURAL_DIFF} metrics={NAE1_METRICS} site={NAE1_SITE} />);
+    expect(within(screen.getByTestId('packing-readings')).getByTestId('pkg-phys-vdw')).toHaveTextContent('kJ/mol');
+    expect(container.textContent).not.toContain('kcal/mol');
+  });
+});

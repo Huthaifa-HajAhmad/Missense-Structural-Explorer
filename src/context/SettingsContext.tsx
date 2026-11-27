@@ -398,6 +398,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function useOptionalSettings(): SettingsContextType | undefined {
+  return useContext(SettingsContext);
+}
+
 export function useSettings() {
   const context = useContext(SettingsContext);
   if (!context) {

@@ -12,8 +12,8 @@ import {
   buildPredictorEvidence,
   groupReadings,
   informationalSummary,
-  isReadingParticipatingInRule,
   predictorSummary,
+  predictorUseLabel,
   type PredictorEvidence,
   type PredictorReading,
 } from "../../shared/predictorEvidence";
@@ -65,7 +65,7 @@ function LocalAgreementRow({ evidence, compact = false }: { evidence: PredictorE
   return <div data-testid="predictor-local-agreement">
     <header className="prd-hero__head prd-context-head">
       <h2 className="eyebrow">Local agreement / informational</h2>
-      <span className="ev-tier" data-tone="muted">Context only / never sets PP3 / BP4</span>
+      <span className="ev-tier" data-tone="muted">Context only</span>
     </header>
     <PredictorInformationalSummary evidence={evidence} headingLevel="h3" compact={compact} />
   </div>;
@@ -86,14 +86,15 @@ function CaveatChips({ reading }: { reading: PredictorReading }) {
 
 function ReadingRow({
   reading,
-  inActiveRule,
+  status,
   onKnowledge,
   onAction,
   onTabChange,
   cutLines,
 }: {
   reading: PredictorReading;
-  inActiveRule: boolean;
+  /** The tool's one status on every screen (`predictorUseLabel`). */
+  status: string;
   /** The cut-points in words ("PP3 ≥ 0.644 · 0.773 · 0.932"), so a number can be read off without a hover. */
   cutLines?: string[];
   onKnowledge: (key: string) => void;
@@ -181,20 +182,18 @@ function ReadingRow({
           // Not a call: plain text, so the column's chips are only the readings that make one.
           <span className="prd-call__plain">Informational</span>
         ) : has ? (
-          <>
-            <span
-              className={`ev-tier${/^(PP3|BP4)/.test(reading.callLabel) ? " chip-code" : ""}`}
-              data-tone={reading.callTone}
-            >
-              {formatEvidenceCode(reading.callLabel)}
-            </span>
-            {!inActiveRule && reading.calibrated && <span className="prd-call__sub">not counted</span>}
-          </>
+          <span
+            className={`ev-tier${/^(PP3|BP4)/.test(reading.callLabel) ? " chip-code" : ""}`}
+            data-tone={reading.callTone}
+          >
+            {formatEvidenceCode(reading.callLabel)}
+          </span>
         ) : (
           <span className="ev-tier" data-tone={pending ? "neutral" : "muted"}>
             {pending ? ENGINE_STATE_LABELS.running : reading.availability.label ?? ENGINE_STATE_LABELS["no-result"]}
           </span>
         )}
+        {has && <span className="prd-call__sub">{status}</span>}
       </td>
     </tr>
   );
@@ -279,6 +278,7 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
     ...ladder.directional.map(d => [d.key, [d.cutText]] as [string, string[]]),
   ]), [ladder]);
   const predictorModel = useMemo(() => buildPredictorComparison(evidence, ladder), [evidence, ladder]);
+  const statusByKey = useMemo(() => Object.fromEntries(evidence.readings.map(r => [r.key, predictorUseLabel(r, evidence.primary)])), [evidence]);
 
   const openConnections = () => {
     if (onOpenSettings) onOpenSettings();
@@ -304,10 +304,10 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="prd-card prd-hero" aria-labelledby="prd-finding-title" data-testid="predictor-finding">
         <div className="prd-hero__head">
-          <span className="eyebrow" id="prd-finding-title">
+          <h2 className="eyebrow" id="prd-finding-title">
             <Cpu className="w-3.5 h-3.5" />
             ACMG computational evidence · PP3 / BP4
-          </span>
+          </h2>
           <EngineChip evidence={evidence} />
         </div>
 
@@ -323,7 +323,7 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
           </span>
         </p>
 
-        {(!workspace.enabled || workspace.view === 'strength') && <StrengthLadder evidence={ladder} primaryKey={evidence.readings.find(r => (r.chainKey ?? (r.key === 'cadd' ? 'cadd' : null)) === evidence.primary.activeTool)?.key ?? null} />}
+        {(!workspace.enabled || workspace.view === 'strength') && <StrengthLadder evidence={ladder} statusByKey={statusByKey} />}
 
         {!workspace.enabled && <><ChainRow evidence={evidence} /><PrimaryToolRow evidence={evidence} /></>}
 
@@ -338,13 +338,13 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
       </section>
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
-      {workspace.comparison && <EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." />}
+      {workspace.comparison && <EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right." />}
       {workspace.comparison && <section className="prd-card" aria-label="How the engine read these predictors"><ChainRow evidence={evidence} /><PrimaryToolRow evidence={evidence} /></section>}
       {/* Local agreement is not the engine's reading, so it gets its own card rather than a row
           inside the engine card: its own note says these readings never change PP3 / BP4. */}
-      {workspace.comparison && <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} compact /></section>}
+      {workspace.comparison && <section className="prd-card" aria-label="Informational agreement on this screen"><LocalAgreementRow evidence={evidence} compact /></section>}
       {(!workspace.enabled || workspace.view === 'records') && <>
-      <section className="prd-card" aria-label="Local informational agreement"><LocalAgreementRow evidence={evidence} /></section>
+      <section className="prd-card" aria-label="Informational agreement on this screen"><LocalAgreementRow evidence={evidence} /></section>
       <InformationalCard evidence={evidence} />
 
       {/* ── 3. Readings ────────────────────────────────────────────────────────────────────── */}
@@ -400,7 +400,7 @@ function PredictorsTabContent({ analysisState, onOpenSettings, onTabChange }: Ta
                   <ReadingRow
                     key={r.key}
                     reading={r}
-                    inActiveRule={isReadingParticipatingInRule(r, evidence.primary)}
+                    status={statusByKey[r.key]}
                     onKnowledge={setKnowledgeKey}
                     onAction={openConnections}
                     onTabChange={onTabChange}

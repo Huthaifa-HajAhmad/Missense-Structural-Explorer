@@ -31,12 +31,9 @@ export function EngineTally({ evidence, unit }: { evidence: EnergeticsEvidence; 
     <div className="nrg-frow" data-testid="energetics-tally">
       <div className="nrg-frow__label">
         <span className="nrg-frow__name">Engines</span>
-        {/* The tally's own vocabulary is the count that RETURNED vs the count that COUNTED — the
-            same two numbers the summary sentence uses, so the tile and the sentence cannot disagree
-            when an excluded FoldX value is on screen. */}
+        {/* The counted number is said once, in the summary sentence beside this tile. */}
         <span className="nrg-frow__sub">
           {`${returnedEnergyEstimates(evidence)} of ${evidence.coverage.intended} engines returned a value`}
-          {evidence.agreement.nCounted !== returnedEnergyEstimates(evidence) ? `, ${evidence.agreement.nCounted} counted in the agreement` : ""}
           {" · each judged on its own local mark"}
         </span>
       </div>

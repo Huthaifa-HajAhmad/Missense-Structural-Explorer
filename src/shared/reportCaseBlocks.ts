@@ -11,6 +11,7 @@ import type { NarrativeAuthorship } from "./narrativeAuthorship.ts";
 import { narrativeFreshness } from "./narrativeEvidence.ts";
 import { PROVENANCE_DATA_SOURCES } from "./provenance.ts";
 import { paperIdentifier } from "./literatureEvidence.ts";
+import { TIER_SCOPE_SENTENCE, criterionStateLabel, runStatusOf } from "./insightsEvidence.ts";
 import { REPORT_SOURCES, blankBlock, reportReferenceUrl, type ReportBlock, type ReportChip, type ReportDocumentInput } from "./reportModel.ts";
 import { bold, joinText, sentence } from "./reportProse.ts";
 
@@ -82,7 +83,11 @@ export function classificationBlock(input: ReportDocumentInput): ReportBlock {
 
   const paragraphs: string[] = [];
   paragraphs.push(joinText([bold(ev.finding.headline), ev.finding.rest]));
+  paragraphs.push(TIER_SCOPE_SENTENCE);
   if (ev.gap) paragraphs.push(`${bold("What would move it.")} ${ev.gap.sentence}`);
+  const run = runStatusOf(ev);
+  if (run.state === "running") paragraphs.push(`${bold("Still running.")} These areas have not finished, so the classification may change: ${run.running.join(", ")}.`);
+  if (run.gaps.length) paragraphs.push(`${bold("Evidence gaps.")} These were not assessed, withheld or unavailable for this run: ${run.gaps.join("; ")}.`);
   if (ev.recordMismatch) {
     paragraphs.push(
       `${bold("Recorded tier and current rule differ.")} The tier stored with this run differs from the combining rule applied to its recorded criteria, so an earlier engine version classified it.`
@@ -97,7 +102,7 @@ export function classificationBlock(input: ReportDocumentInput): ReportBlock {
   const rows: string[][] = ev.criteria
     .filter(c => !silent.includes(c))
     .sort((x, y) => order[x.state] - order[y.state])
-    .map(c => [c.code, c.strength, c.state === "met" ? "Met" : c.state === "withheld" ? "Withheld" : c.state === "not met" ? "Not met" : "Not recorded", c.reason]);
+    .map(c => [c.code, c.strength, criterionStateLabel(c.state), c.reason]);
   for (const p of ev.proposals) rows.push([p.code, "n/a", "Not counted", `Proposed by the language model, which the engine cannot compute. ${p.reason}`.trim()]);
   // Rows are sorted met, then withheld, so the criteria the engine counted ("Met") lead and form the
   // short list. A withheld criterion is not counted, so it is not in it.
@@ -116,7 +121,6 @@ export function classificationBlock(input: ReportDocumentInput): ReportBlock {
       ? `${ev.droppedEngineOwned.length} model ${ev.droppedEngineOwned.length === 1 ? "proposal" : "proposals"} for a code the engine owns ${ev.droppedEngineOwned.length === 1 ? "was" : "were"} dropped.`
       : "",
   ]) || null;
-  b.reads = [{ label: "Insights", tab: "insights" }];
   return b;
 }
 
@@ -134,7 +138,6 @@ export function contrastBlock(input: ReportDocumentInput): ReportBlock {
   b.status = parts.length ? "read" : "absent";
   if (!parts.length) b.drafted = "Nothing to compare yet: fewer than two evidence areas returned a reading.";
   b.caption = "Each line is generated from the evidence tabs' own recorded calls. No new score is invented.";
-  b.reads = [{ label: "Insights", tab: "insights" }];
   return b;
 }
 
@@ -181,7 +184,6 @@ export function summaryBlock(input: ReportDocumentInput): ReportBlock {
   const { narrative } = input;
   const sent = input.insights?.narrative.sent ?? NARRATIVE_PROMPT_EVIDENCE.sent;
   const notSent = input.insights?.narrative.notSent ?? NARRATIVE_PROMPT_EVIDENCE.notSent;
-  b.reads = [{ label: "Insights", tab: "insights" }];
   b.chips.push(AUTHORSHIP_CHIP[narrative.authorship]);
   if (narrative.authorship === "ai" && narrative.model) b.chips.push({ label: narrative.model, tone: "muted" });
   if (!narrative.text.trim()) {

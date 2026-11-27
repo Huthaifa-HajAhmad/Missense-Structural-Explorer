@@ -54,7 +54,7 @@ describe("buildReportPptx", () => {
 
   it("keeps the full block text in the speaker notes", async () => {
     const { notes } = await open(doc());
-    expect(notes.join("\n")).toContain("Not enough evidence either way yet.");
+    expect(notes.join("\n")).toContain("Automated tier: uncertain significance.");
   });
 
   it('keeps every included warning and provenance caption visible, even when a warning needs continuation', async () => {
@@ -100,4 +100,11 @@ describe("leadOf", () => {
     expect(out.length).toBeLessThanOrEqual(101);
     expect(out.endsWith(".")).toBe(true);
   });
+});
+
+for (const excluded of [false, true]) it(`keeps mandatory gaps with edited classification, excluded=${excluded}`, async () => {
+ const d = doc({ sections: { ...defaultReportSections(), classification: !excluded }, edits: { classification: { text: "Author wording", base: "" } } });
+ const data = await open(d);
+ expect(data.slides[0]).toContain("Finished with gaps");
+ expect(data.slides[0]).toContain("Population (not assessed)");
 });

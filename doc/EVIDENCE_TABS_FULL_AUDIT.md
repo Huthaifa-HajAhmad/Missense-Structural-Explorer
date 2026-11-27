@@ -1,5 +1,11 @@
 # Evidence tabs — full audit and resolution (2026-10-27)
 
+> **Superseded in part (2026-11-27).** The app no longer records BS1 for UROD p.Gly318Arg: BS1 now needs a
+> condition-specific maximum credible allele frequency, so the FAF95 of 1.62% (afr) is shown as a reference above
+> the 1% app-wide cut-point and is not counted. BS2 is not counted either, because gnomAD does not record whether
+> homozygous participants are unaffected. The current rules are in `doc/LIMITATIONS.md`; the release audit is
+> `doc/RELEASE_COHERENCE_AUDIT.md`.
+
 Reference variant: **UROD p.Gly318Arg** (NM_000374.5, GRCh38 1-45015346-G-A, P06132).
 
 Round 1 audited the Population data tab end to end (tab → shared model → server → engine → rail) and

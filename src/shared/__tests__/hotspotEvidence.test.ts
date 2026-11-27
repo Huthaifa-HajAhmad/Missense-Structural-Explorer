@@ -4,7 +4,7 @@
  * Fixtures: src/shared/__tests__/fixtures/hotspots{Sod1,Vhl}.json, from server/services/evidence-context/hotspots.ts.
  */
 import { describe, it, expect } from "vitest";
-import { buildHotspotEvidence, hotspotContextSchema, HOTSPOT_GRADE_LABEL, type HotspotContext } from "../hotspotEvidence";
+import { buildHotspotEvidence, expertPm1Specified, hotspotContextSchema, HOTSPOT_GRADE_LABEL, type HotspotContext } from "../hotspotEvidence";
 import sod1Raw from "./fixtures/hotspotsSod1.json";
 import vhlRaw from "./fixtures/hotspotsVhl.json";
 
@@ -143,12 +143,15 @@ describe("buildHotspotEvidence — states", () => {
     const mismatch: HotspotContext = { ...sod1, numbering: { status: "mismatch", checked: 486, mismatches: 185 } };
     const ev = build(mismatch, 5, "Ala5");
     expect(rung(ev, "distribution")).toMatchObject({ state: "not-shown" });
-    expect(rung(ev, "distribution").headline).toMatch(/185 of 486/);
+    // The numbering problem is stated once, in the verdict line; each card only says it is withheld (B11).
+    expect(rung(ev, "distribution").headline).toBe("Withheld (numbering)");
+    expect(ev.finding.rest).toMatch(/185 of 486/);
+    expect(JSON.stringify(ev.rungs)).not.toMatch(/185 of 486/);
     expect(ev.distribution).toBeNull();
     expect(ev.variantsWithheld).toBe(true);
     // The regional intervals are placed on the same rows' transcript, so they are not on this protein either.
     expect(rung(ev, "regional")).toMatchObject({ state: "not-shown", atVariant: null, bands: [] });
-    expect(rung(ev, "regional").headline).toMatch(/185 of 486/);
+    expect(rung(ev, "regional").headline).toBe("Withheld (numbering)");
     expect(ev.rows).toEqual([]);
     expect(ev.modelNote).toMatch(/numbering disagrees/);
   });
@@ -303,5 +306,12 @@ describe("buildHotspotEvidence — the residue columns (accessibility, UniProt s
     expect(rowOf(e, 4).interfaceModelled).toBe(0);
     expect(rowOf(e, 7).interfaceModelled).toBe(137);
     expect(rowOf(build(sod1, 5, "Ala5", { interfaces: support }), 4).interfaceModelled).toBeNull();
+  });
+});
+
+describe("expert panel PM1 specification (B30)", () => {
+  it("reads a released panel PM1 rule as owning PM1, and an unreleased panel as not", () => {
+    expect(expertPm1Specified(vhl.cspec)).toBe(true);
+    expect(expertPm1Specified(sod1.cspec)).toBe(false);
   });
 });

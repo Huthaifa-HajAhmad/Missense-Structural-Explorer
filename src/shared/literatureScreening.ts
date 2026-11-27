@@ -362,10 +362,10 @@ export function whyRead(screening: PaperScreening): string | null {
   // Quote a tag that earned this tier. Picking the best-sourced tag of any kind put a review's
   // publication type ("review-article") on a row that is tier 2 because it names the variant.
   const earning = screening.tags.filter(tag => TIER_REASONS[screening.tier].includes(tag.tag));
-  // A paper placed by its provider record alone has no tag that earned the tier. Falling back to any
-  // other tag would quote a gene mention as the reason, so the provider relationship is the line.
+  // A paper placed by its provider record alone has no title/abstract mention of the variant.
+  // Label it as a curated variant citation rather than "Variant-anchored" (audit finding F9).
   const provider = screening.citedBy?.[0];
-  if (!earning.length && provider) return `${TIER_NAMES[screening.tier]} · ${provider.label}`;
+  if (!earning.length && provider) return `Curated variant citation · ${provider.label}`;
   const useful = earning.length ? earning : screening.tags.filter(tag => !["model-system", "full-text-only"].includes(tag.tag));
   const strongest = sourceOrder
     .map(source => useful.find(tag => tag.source === source))

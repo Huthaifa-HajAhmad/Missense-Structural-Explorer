@@ -150,3 +150,12 @@ tools/structure-focus/
 
 # Design-review hook's machine cache; the config beside it is tracked.
 .impeccable/hook.cache.json
+
+# Release coherence audit raw captures (~187 MB screenshots/API dumps/erepo.tsv; kept on disk).
+# The single pre-split TP53 multimer payload imported by interfacesEvidenceStored.test.ts stays tracked.
+doc/release-audit/raw/*
+!doc/release-audit/raw/TP53_R175H/
+doc/release-audit/raw/TP53_R175H/*
+!doc/release-audit/raw/TP53_R175H/api/
+doc/release-audit/raw/TP53_R175H/api/*
+!doc/release-audit/raw/TP53_R175H/api/022_v1-structure-multimer.json

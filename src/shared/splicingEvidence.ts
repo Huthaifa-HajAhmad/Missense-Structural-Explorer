@@ -857,7 +857,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
       ? describeSpliceAiFailure(failure)
       : inGene
       ? "Neither the live Broad lookup nor the precomputed tables returned a score, and the payload does not record why. SpliceAI scores every single-nucleotide change in an annotated gene, so this points to a failed or rejected request, not to nothing to score."
-      : "Neither the live Broad lookup nor the precomputed tables returned a score for this coordinate.";
+      : geometry.refusal ?? "Neither the live Broad lookup nor the precomputed tables returned a score for this coordinate.";
     if (saiTimedOut) {
       saiAvailability.label = SPLICEAI_FAILURE_LABEL.timeout;
     } else if (failure) {
@@ -958,7 +958,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
         : ruleState === "pp3" && ruleCode
         ? { label: `${formatEvidenceCode(ruleCode)} · splicing`, tone: "danger", isCode: true, unapplied: !appliedFromSplicing }
         : ruleState === "bp4"
-        ? { label: "BP4 · splicing", tone: "good", isCode: true, unapplied: true }
+        ? { label: "Not counted", tone: "neutral", isCode: false }
         : { label: policy.pp3Excluded ? "No splicing criterion" : "Between bands", tone: "neutral", isCode: false },
     note: maxDs !== null ? describeSpliceAiSource(prov) : null,
     availability: saiAvailability,
@@ -1079,13 +1079,19 @@ export function splicingFinding(ev: SplicingEvidence): { headline: string; predi
           ? `${deltaPhrase(rule.maxDs!)} is at or above ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)}, which supports PP3 for splicing impact`
           : `${deltaPhrase(rule.maxDs!)} meets ${policy.sourceLabel} (${policy.pp3Footnote}), which supports ${formatEvidenceCode(rule.code ?? "PP3")} for splicing impact`,
       };
-    case "bp4":
+    case "bp4": {
+      // Splicing BP4 is never recorded for a missense variant, so the card says what the score does not do.
+      const band = isWalker
+        ? `is at or below ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)}`
+        : `meets ${policy.bp4Band.rule} (${policy.sourceLabel})`;
+      const noPp3 = isWalker
+        ? `splicing adds no PP3 at this score (max Δ below ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)})`
+        : "splicing adds no PP3 at this score";
       return {
         headline: "SpliceAI's score is below the splicing BP4 threshold",
-        predicate: isWalker
-          ? `${deltaPhrase(rule.maxDs!)}${where} is at or below ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)}, which supports BP4 for splicing impact`
-          : `${deltaPhrase(rule.maxDs!)}${where} meets ${policy.bp4Band.rule} (${policy.sourceLabel}), which supports BP4 for splicing impact`,
+        predicate: `${deltaPhrase(rule.maxDs!)}${where} ${band}; ${noPp3}; splicing BP4 is not counted for missense variants`,
       };
+    }
     case "between":
       return {
         headline: policy.pp3Excluded

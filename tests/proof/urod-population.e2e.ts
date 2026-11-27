@@ -17,15 +17,17 @@ describe('UROD population proof', { tags: ['live', 'proof'], timeout: 300_000 },
     await screen.getByRole('button', 'Population data').tap();
     await expect(screen.getByRole('heading', 'Population data')).toBeVisible();
     // The headline finding, as a contract rather than a screenshot: gnomAD v4 puts this allele at
-    // FAF95 1.618% in the African-ancestry group — above the 1% BS1 cut-point. A regression back to
-    // the old "combined 0.104% between the cut-points" outcome fails these two assertions.
+    // FAF95 1.618% in the African-ancestry group, above the 1% BS1 reference value. BS1 is not counted
+    // in this app (it needs a condition-specific maximum credible allele frequency), so no frequency
+    // criterion is recorded, and the BS1 reference is shown but not counted.
     await expect(screen.getByTestId('verdict-chip')).toBeVisible();
-    await expect(screen.getByTestId('verdict-chip')).toHaveText('BS1');
+    await expect(screen.getByTestId('verdict-chip')).toHaveText('No criterion');
+    await expect(screen.getByText(/BS1 is not applied/)).toBeVisible();
     await expect(screen.getByTestId('figure-headline')).toHaveText('1.62%');
     await app.screenshot('population');
     await screen.getByRole('button', 'Species & models').tap();
     await expect(screen.getByRole('heading', 'Species & models')).toBeVisible();
-    await expect(screen.getByText(/is the same amino acid in|could not be placed|has no ortholog alignment/)).toBeVisible({ timeout: 90_000 });
+    await expect(screen.getByText(/is the same amino acid in|could not be placed|has no ortholog alignment/).first()).toBeVisible({ timeout: 90_000 });
     await app.screenshot('species');
   });
 });

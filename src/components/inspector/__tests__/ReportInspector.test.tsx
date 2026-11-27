@@ -177,10 +177,16 @@ describe("ReportInspector", () => {
     expect(useVariantAnalysisStore.getState().reportView).toBe("writing");
   });
 
-  it("says the report is ready when nothing needs review, and names the reason when something does", () => {
-    mount();
-    expect(screen.getByText("Ready to export. Nothing needs review.")).toBeInTheDocument();
-    cleanup();
+  it("says the Report is still running while a lane is pending, and names the reason when something does", () => {
+    // A missing feature table only reads as "Still running" while a live fetch is in flight (audit F2/T1).
+    useVariantAnalysisStore.getState().setIsBiophysicalLoading(true);
+    try {
+      mount();
+      expect(screen.getByText(/^Still running:.*Protein function/)).toBeInTheDocument();
+      cleanup();
+    } finally {
+      useVariantAnalysisStore.getState().setIsBiophysicalLoading(false);
+    }
     useVariantAnalysisStore.getState().setReportEdit("computational", "Mine.", "an older draft");
     mount();
     expect(screen.getByRole("button", { name: /Computational evidence.*Evidence changed after your edit/ })).toBeInTheDocument();

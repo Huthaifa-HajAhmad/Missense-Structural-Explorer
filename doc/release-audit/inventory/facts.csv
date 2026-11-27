@@ -1,0 +1,161 @@
+fact,site_file,site_line,component,tab,field_path,formatter
+gene symbol,src/components/header/VariantIdentity.tsx,26,VariantIdentity,header (all analysis views),model.gene from variantHeaderModel.ts:24/47,raw string
+gene symbol,src/components/EnergeticsView.tsx,138,EnergeticsView,energetics,result.metadata.gene + result.metadata.variant,raw string in JSX
+gene symbol,src/components/header/variantHeaderModel.ts,24,variantHeaderModel,header,gene (model field),raw
+UniProt accession,src/components/header/VariantIdentity.tsx,59-62,VariantIdentity,header,model.uniprotId (from result.metadata.uniprotId),raw string
+UniProt accession,src/components/header/VariantIdentity.tsx,64-69,VariantIdentity (link),header,uniprotId,encodeURIComponent in href; raw in title
+transcript ID,src/components/header/variantHeaderModel.ts,95,variantHeaderModel,header,identity.maneRefSeqId || transcriptId,raw; MANE RefSeq preferred over the analysed transcript
+transcript ID,src/components/header/VariantIdentity.tsx,38,VariantIdentity,header,transcript.id (from variantHeaderModel.ts:153),raw
+transcript ID,src/components/header/constraintMetrics.ts,538,constraintMetrics,constraint chip,provenance.transcriptId + "." + provenance.transcriptVersion,string concatenation
+transcript ID,src/components/inspector/ConstraintInspector.tsx,142,ConstraintInspector,constraint,provenance.transcript,raw (cx-mono)
+transcript ID,src/components/inspector/SplicingRail.tsx,82,SplicingRail,RNA splicing,g.transcriptId and g.ensemblTranscriptId,raw; two IDs shown when they differ
+transcript ID,src/components/evidence/PextCard.tsx,54,PextCard,expression,transcript prop,raw (ctx-mono)
+transcript ID,src/components/inspector/FunctionRail.tsx,98,FunctionRail,function,hotspots.context.transcript,raw
+transcript ID,src/components/evidence/splicing/SpliceMap.tsx,349,SpliceMap,RNA splicing,geometry.transcriptId,raw (SVG text)
+transcript ID,src/components/inspector/PopulationRail.tsx,379,PopulationRail,clinical,transcriptWarning,raw note
+protein residue number and numbering basis,src/components/header/variantHeaderModel.ts,86,variantHeaderModel,header,buildHeadlineVariant(variant; uniprotId; analysisResult),template string
+protein residue number and numbering basis,src/components/header/VariantIdentity.tsx,26-30,VariantIdentity,header,model.headlineVariant,raw with CopyBtn
+protein residue number and numbering basis,src/shared/contracts.ts,723-726,contracts (schema),all,uniprotIsoform (numbering isoform),schema only
+protein residue number and numbering basis,src/shared/contracts.ts,746,contracts (schema),all,renumbered-onto-canonical note,schema only
+HGVS p.,src/components/inspector/LandscapeLocalContext.tsx,72,LandscapeLocalContext,landscape,own[0].hgvsp,template string raw
+HGVS p.,src/components/inspector/LandscapeLocalContext.tsx,74,LandscapeLocalContext,landscape,c.hgvsp (records),template string raw
+HGVS p.,src/components/sequence/LandscapeOverview.tsx,265,LandscapeOverview,landscape (SVG title),c.hgvsp,template string raw
+HGVS p.,src/shared/contracts.ts,2191-2192,contracts (schema),all,hgvsc / hgvsp,schema only
+HGVS c. and p.,src/components/VariantSearchPanel.tsx,1473-1475,VariantSearchPanel,search (refusal),result.nonMissenseRefusal.hgvsc,raw
+genomic coordinate,src/components/header/VariantIdentity.tsx,48-54,VariantIdentity,header,coordinate.id (variantHeaderModel.ts:156) and coordinate.assemblyKey,raw; assembly key shown as separate chip
+genomic coordinate,src/components/inspector/SplicingRail.tsx,75,SplicingRail,RNA splicing,md.genomicCoordinates + md.assembly,template string raw
+genomic coordinate,src/components/evidence/AlphaGenomeTab.tsx,359,AlphaGenomeTab,alphagenome,md.genomicCoordinates (passed through),pass-through
+combined allele frequency (AF),src/components/evidence/ClinicalTab.tsx,178,ClinicalTab,clinical (population source rows),o.af,formatAlleleFrequency
+combined allele frequency (AF),src/components/evidence/ClinicalTab.tsx,441,ClinicalTab,clinical (disagreement note),disagreement.af,formatAlleleFrequency
+combined allele frequency (AF),src/components/evidence/CandidateAlleles.tsx,75,CandidateAlleles,clinical (candidates table),row.af,formatAlleleFrequency; em dash when null
+combined allele frequency (AF),src/components/evidence/CandidateAlleles.tsx,96,CandidateAlleles,clinical (candidates text),row.af,formatAlleleFrequency; "no reading"/"no record" words instead of a dash
+combined allele frequency (AF),src/components/evidence/population/FrequencyScale.tsx,131,FrequencyScale,clinical (scale marker title),r.af,formatAlleleFrequency
+combined allele frequency (AF),src/components/evidence/population/FrequencyScale.tsx,179,FrequencyScale,clinical (scale list),r.af,formatAlleleFrequency
+combined allele frequency (AF),src/components/inspector/PopulationRail.tsx,182,PopulationRail,clinical (rail step 1),inputs.benignAf,formatAlleleFrequency
+combined allele frequency (AF),src/shared/evidenceComparison.ts,70-72,evidenceComparison,clinical (comparison chart),allele.af,formatFrequencyPercent; "0%" and "No reading" words
+combined allele frequency (AF),src/shared/evidenceComparison.ts,95-98,evidenceComparison,clinical (comparison chart; source rows),o.af,formatFrequencyPercent
+combined allele frequency (AF),src/shared/evidenceComparison.ts,102,evidenceComparison,clinical (records),o.af,formatFrequencyPercent plus raw fraction "(x as a fraction)"
+combined allele frequency (AF),src/shared/evidenceComparison.ts,120,evidenceComparison,clinical (criterion row),c.af,formatFrequencyPercent
+grpmax (grouped maximum),src/components/evidence/ClinicalTab.tsx,243,ClinicalTab,clinical,criterion.usedGroupMax ? criterion.af,then formatAlleleFrequency at ClinicalTab.tsx:178
+grpmax (grouped maximum),src/components/evidence/ClinicalTab.tsx,320,ClinicalTab,clinical (PM2 note),static copy + FREQ.groupMinAn,formatCount
+grpmax (grouped maximum),src/components/inspector/PopulationRail.tsx,189,PopulationRail,clinical (PM2 step),GRPMAX_GROUPS + FREQ.groupMinAn,toLocaleString("en-GB")
+FAF95 (BA1/BS1 input),src/components/evidence/ClinicalTab.tsx,323-331,ClinicalTab,clinical (FAF95 row),criterion.inputs.benignAf and criterion.faf95Population,formatAlleleFrequency (via af); gnomadGroupLabel for group
+FAF95 (BA1/BS1 input),src/shared/evidenceComparison.ts,82,evidenceComparison,clinical (records),allele.benignAf,formatFrequencyPercent
+FAF95 (BA1/BS1 input),src/shared/frequencyEvidence.ts,479-482,frequencyEvidence,clinical (criterion label),inputs.benignStatistic and faf95Population,gnomadGroupLabel in label text
+FAF95 (BA1/BS1 input),src/shared/evidenceComparison.ts,111,evidenceComparison,clinical (criterion label),"c.inputs.benignStatistic === faf95","Filtering allele frequency (FAF95)" label
+homozygotes (gnomAD),src/components/evidence/ClinicalTab.tsx,469,ClinicalTab,clinical (BS2 block),evidence.gnomadHomozygotes,formatCount
+homozygotes (gnomAD),src/components/evidence/ClinicalTab.tsx,606,ClinicalTab,clinical (BS2 block; second copy),evidence.gnomadHomozygotes,formatCount
+homozygotes (gnomAD),src/components/inspector/PopulationRail.tsx,236,PopulationRail,clinical (rail),evidence.gnomadHomozygotes,raw with "—" fallback; no thousands separator
+homozygotes (gnomAD),src/shared/evidenceComparison.ts,83,evidenceComparison,clinical (records),allele.homozygotes,formatCount
+homozygotes (gnomAD),src/shared/evidenceComparison.ts,103,evidenceComparison,clinical (records; source rows),o.homozygotes,formatCount
+All of Us counts (het and hom),src/components/evidence/ClinicalTab.tsx,342-343,ClinicalTab,clinical (AoU row),aouRow.heterozygotes and aouRow.homozygotes,formatCount
+All of Us allele frequency,src/components/evidence/CandidateAlleles.tsx,97,CandidateAlleles,clinical (candidates),row.allOfUs.af,formatAlleleFrequency
+ancestry group (grpmax or FAF95),src/components/inspector/PopulationRail.tsx,182,PopulationRail,clinical (rail step 1),criterion.faf95Population,gnomadGroupLabel
+ancestry group (grpmax or FAF95),src/components/evidence/ClinicalTab.tsx,331,ClinicalTab,clinical (FAF95 row),criterion.faf95Population,gnomadGroupLabel
+ClinVar classification,src/components/evidence/VariantLocusCard.tsx,35,VariantLocusCard,clinical (condition card),record.classification,raw string
+ClinVar classification,src/components/inspector/LandscapeLocalContext.tsx,74,LandscapeLocalContext,landscape,c.significance,raw string
+ClinVar classification,src/components/sequence/LandscapeOverview.tsx,265,LandscapeOverview,landscape (SVG title),c.significance,raw string
+ClinVar classification,src/shared/variantLocus.ts,35,variantLocus,clinical (state),classification,typed field (no format)
+ClinVar review status (text),src/components/evidence/ClinicalTab.tsx,668,ClinicalTab,clinical,cv.reviewStatus || "Not reported",raw; fallback "Not reported"
+ClinVar review status (text),src/shared/reportDocument.ts,99,reportDocument,report (record table),cv.reviewStatus || "Not recorded",raw; fallback "Not recorded"
+ClinVar review stars (0-4),src/components/evidence/population/populationFormat.ts,30,populationFormat,clinical,reviewStars(status),function returns 0-4 or null
+ClinVar review stars (0-4),src/components/evidence/ClinicalTab.tsx,199-201,ClinicalTab (Stars),clinical,count prop,"count of 4 review stars" (aria-label and title)
+ClinVar review stars (0-4),src/components/inspector/LandscapeLocalContext.tsx,67,LandscapeLocalContext,landscape,c.stars,"N review star(s)" or "review stars not reported"
+ClinVar review stars (0-4),src/components/sequence/LandscapeOverview.tsx,265,LandscapeOverview,landscape (SVG title),c.stars,"N star symbol" (unicode star)
+ClinVar review stars (0-4),src/components/evidence/function/HotspotsView.tsx,212,HotspotsView,function (hot-spot table),r.maxStars,raw number; title says "gold stars"
+ClinVar review stars (0-4),src/shared/molecularWorkspace.ts,58,molecularWorkspace,function (hot-spot workspace),r.maxStars,"N of 4 review stars"
+REVEL score,src/shared/predictorEvidence.ts,365-367,predictorEvidence,predictors,predictorData.revel (calibratedReading),fmt(score; 3) = toFixed(3)
+REVEL score,src/shared/insilico/primaryPredictor.ts,91-93,primaryPredictor,predictors (shared formatter),score,formatPredictorScore: toFixed(3)
+REVEL score,src/components/inspector/PredictorsRail.tsx,104,PredictorsRail,predictors (rail),l.scoreText,pre-formatted string from predictorEvidence
+REVEL score,src/components/evidence/predictors/ScoreRuler.tsx,129,ScoreRuler,predictors (SVG title / aria),reading.scoreText,pre-formatted string
+BayesDel score,src/shared/predictorEvidence.ts,370-372,predictorEvidence,predictors,predictorData.bayesdel,fmt(score; 3) = toFixed(3)
+AlphaMissense score,src/shared/predictorEvidence.ts,376-378,predictorEvidence,predictors,conservationData AM value (calibratedReading "am"),fmt(score; 3) = toFixed(3)
+ESM1b score,src/shared/predictorEvidence.ts,383-385,predictorEvidence,predictors,predictorData.esm1b,fmt(score; 2) = toFixed(2)
+ESM1b score,src/shared/insilico/primaryPredictor.ts,91-93,primaryPredictor,predictors (shared formatter),score,formatPredictorScore esm1b branch toFixed(2)
+CADD score,src/shared/predictorEvidence.ts,436-438,predictorEvidence,predictors (genome group),predictorData.caddPhred,fmt(score; 1) = toFixed(1)
+CADD score,src/shared/insilico/primaryPredictor.ts,91-93,primaryPredictor,predictors (shared formatter),score,formatPredictorScore cadd branch toFixed(1)
+popEVE score,src/shared/predictorEvidence.ts,461,predictorEvidence,predictors (severity group),predictorData.popeve,fmt(popeve; 3) = toFixed(3)
+popEVE score,src/shared/thresholds/evaluators.ts,113-116,evaluatePopEve,predictors,popeve,band (pathogenic or vus); no text
+AlphaGenome AVI score,src/shared/predictorEvidence.ts,511,predictorEvidence,predictors (AVI row),avi,fmt(avi; 1) = toFixed(1)
+ScoreCons score,src/shared/predictorEvidence.ts,574-587,predictorEvidence,predictors (conservation),scorecons,fmt(scorecons; 2) = toFixed(2)
+SpliceAI max delta,src/components/evidence/predictors/PredictorFindingRows.tsx,94,PredictorFindingRows,predictors (headline),primary.activeScore,toFixed(2) hard-coded
+SpliceAI max delta,src/components/evidence/predictors/PredictorFindingRows.tsx,167,PredictorFindingRows,predictors (finding),primary.activeScore,toFixed(2) hard-coded
+SpliceAI max delta,src/shared/insilico/primaryPredictor.ts,91-93,primaryPredictor,predictors (shared formatter),score,formatPredictorScore spliceai branch toFixed(2)
+predictor band call (PP3 or BP4 with strength),src/shared/thresholds/calibration.ts,160-168,calibratedCall,predictors,score and PP3_BP4_CALIBRATION[tool],returns code; no text
+predictor band call (PP3 or BP4 with strength),src/components/evidence/PredictorsTab.tsx,189,PredictorsTab,predictors (row),reading.callLabel,formatEvidenceCode
+predictor band call (PP3 or BP4 with strength),src/components/inspector/PredictorsRail.tsx,175,PredictorsRail,predictors (rule step),primary.code,formatEvidenceCode and "VCEP" or "calibrated" word
+band edge labels (axis and ticks),src/components/evidence/predictors/ScoreRuler.tsx,25-48,ScoreRuler,predictors (axis),tick value / threshold,fmtTick: toFixed(1) if abs>=10 else trimmed toFixed(3); fmtEdge decimals from ticks
+band edge labels (axis and ticks),src/components/evidence/predictors/ScoreRuler.tsx,155,ScoreRuler,predictors (band tooltip),b.threshold,fmtEdge
+band edge labels (strength ladder),src/shared/ladderEvidence.ts,157-171,ladderEvidence,predictors (StrengthLadder),threshold,fmtCut: toFixed(1) if abs>=10 else Number(toFixed(3)); duplicates ScoreRuler logic
+criterion label PP2 (text literal),src/components/inspector/PredictorsRail.tsx,191,PredictorsRail,predictors (PP2 step),constraint.regionalOe and pp2Code,toFixed(2) for O/E; "PP2 Moderate"/"PP2 Supporting" typed as literal
+criterion label PP2 (text literal),src/shared/hotspotEvidence.ts,318,hotspotEvidence,function (hot-spot O/E bands),regionalPp2Code(g.oe),"PP2 Moderate"/"PP2 Supporting" literal (not formatEvidenceCode)
+criterion label PP2 (text literal),src/components/header/constraintMetrics.ts,430-432,constraintMetrics,header (constraint chip),pp2,"PP2 Moderate band"/"PP2 Supporting band" literal verdicts
+criterion code (display),src/components/insights/InsightsScreen.tsx,108,InsightsScreen,insights (criteria table),c.code,formatEvidenceCode
+criterion state (display),src/components/insights/InsightsScreen.tsx,109,InsightsScreen,insights (no-record row),"No criterion recorded" and "not met"; lowercase literal,raw
+criterion state (display),src/shared/reportCaseBlocks.ts,100,reportCaseBlocks,report (criteria table),c.state,"Met"/"Withheld"/"Not met"/"Not recorded" (title case) via ternary
+criterion state (display),src/components/evidence/ClinicalTab.tsx,93,ClinicalTab,clinical (criterion row),criterion.code === "withheld",raw "Withheld"
+criterion code (report),src/shared/reportEvidenceBlocks.ts,27,reportEvidenceBlocks,report (chips),lane.code,formatEvidenceCode + " counted"
+criterion code (report),src/shared/reportDocument.ts,126,reportDocument,report (still counted),b.counted,formatEvidenceCode
+criterion code (strength suffix),src/shared/thresholds/calibration.ts,142-148,formatEvidenceCode and strengthCode,all criteria,code string,replace first underscore; "VeryStrong" to "Very Strong"; Supporting has no suffix
+O/E regional (predictor rail),src/components/inspector/PredictorsRail.tsx,191,PredictorsRail,predictors,constraint.regionalOe,toFixed(2)
+O/E regional (constraint chip),src/components/header/constraintMetrics.ts,423,constraintMetrics,header,oe,toFixed(3) if equal to a band edge else toFixed(2)
+O/E regional (hot-spot bands),src/shared/hotspotEvidence.ts,315,hotspotEvidence,function,g.oe / here.oe (oeText),toFixed(3) at a band edge else toFixed(2); same rule as constraintMetrics.ts:423 but separate code
+O/E regional (landscape label),src/components/sequence/LandscapeOverview.tsx,662,LandscapeOverview,landscape (region label),r.oe,"<0.6" clamp then Number(toPrecision(2))
+O/E regional (landscape tooltip),src/components/sequence/LandscapeOverview.tsx,664,LandscapeOverview,landscape (tooltip),r.oe,raw template (no precision)
+O/E regional (local context),src/components/inspector/LandscapeLocalContext.tsx,52,LandscapeLocalContext,landscape (context row),region.oe,raw template; "Not reported" fallback
+O/E regional (landscape evidence sentence),src/shared/landscapeEvidence.ts,584,landscapeEvidence,landscape (evidence sentence),region.oe,raw template; em dash fallback
+O/E residue window (function),src/shared/functionEvidence.ts,1033,functionEvidence,function (constraint sentence),rc.oeRatio (regionalConstraint),toFixed(2)
+gene constraint values LOEUF pLI missense Z,src/components/literature/MechanismPanel.tsx,15,MechanismPanel,literature,number(value; digits=2),toFixed(2) default; "Not reported" when null
+gene constraint values LOEUF pLI missense Z,src/components/literature/MechanismPanel.tsx,22,MechanismPanel,literature,constraint.loeuf / pli / missense_z,number() toFixed(2)
+MCR (constraint region) edges,src/shared/thresholds/calibration.ts,212-251,calibration,predictors and landscape,MCR O/E edges for PP2 and BP1,edges only; shown as text in constraintMetrics.ts:383
+AlphaFold pLDDT,src/components/evidence/function/HotspotsView.tsx,216,HotspotsView,function (hot-spot table),r.plddt,toFixed(0); em dash when null
+AlphaFold pLDDT,src/components/MolstarViewer.tsx,241-243,MolstarViewer,3D structure (caption),plddtAtSite,toFixed(0) with "(AlphaFold DB)"
+AlphaFold pLDDT,src/components/energetics/PackingFigures.tsx,57,PackingFigures,energetics (input confidence),inputConfidence.plddt,toFixed(1)
+AlphaFold pLDDT,src/components/inspector/EnergeticsRuleTrace.tsx,98,EnergeticsRuleTrace,energetics (rule trace),evidence.lowPlddt,toFixed(1)
+AlphaFold pLDDT,src/shared/energeticsEvidence.ts,540-556,energeticsEvidence,energetics (narrative),protvarPlddt,toFixed(1)
+AlphaFold pLDDT,src/shared/energeticsEvidence.ts,1002,energeticsEvidence,energetics (narrative),ev.lowPlddt,toFixed(1)
+AlphaFold pLDDT,src/shared/structure3dEvidence.ts,1076,structure3dEvidence,3D structure (chip),value,toFixed(1) with band label
+AlphaFold pLDDT,src/shared/molecularWorkspace.ts,73,molecularWorkspace,function (hot-spot workspace),r.plddt,toFixed(0) + " / 100"; "Not available" when null
+pLDDT filter option labels,src/components/molstar/StructureToolbar.tsx,182-183,StructureToolbar,3D structure (filter),plddtFilter option values,"pLDDT >= 50" / "pLDDT >= 70" literal
+PDB count (k of n solved),src/shared/insightsEvidence.ts,343,insightsEvidence,insights (support phrase),k and n (n = modelled entries),"in k of n solved structures"
+PDB count ("Solved: N"),src/shared/interfaces/partnerGroups.ts,59,partnerGroups,interfaces (partner row),row.observed.total,"Solved: N structure(s)" from total (all entries)
+PDB count denominator (n vs total),src/shared/interfaces/observed.ts,21-25,observed (toView),interfaces,n = modelledEntries.length else pdbEntries.length; total = pdbEntries.length,two denominators from one function
+PDB count denominator (artefact merge),src/shared/interfaces/observed.ts,43-44,observed (mergeArtefacts),interfaces (set-aside rows),n and total both = entries.length,one denominator
+PDB count (not modelled sentence),src/shared/interfaces/finding.ts,44,finding,interfaces (headline),silent.total,"None of the N solved structure(s) has coordinates"
+PDB count (not modelled sentence),src/shared/interfaces/finding.ts,91,finding,interfaces (headline),u.total,"not modelled in any of the N solved structure(s)"
+PDB count (interface support cell),src/shared/interfaces/finding.ts,127,finding,interfaces (summary cell),iface.unmodelled.total,"in none of N solved structure(s)"
+PDB count (partner support),src/components/evidence/interfaces/InterfaceOverview.tsx,18,InterfaceOverview,interfaces (support count),p.n and p.total,"–" with title "Not modelled in any of p.total structures"
+PDB count (track label),src/components/evidence/interfaces/InterfaceTrack.tsx,70,InterfaceTrack,interfaces (track),n/a (comment),"–/5" comment: no count printed
+PDB count (assembly diagram),src/components/evidence/interfaces/AssemblyDiagram.tsx,45-46,AssemblyDiagram,interfaces (assembly),pair.total and pair.n,"the one solved structure" / "any of N solved structures" / "N solved structures"
+PDB count (interfaces rail sources),src/components/inspector/InterfacesRail.tsx,86,InterfacesRail,interfaces (rail),ev.observed.coverageChecked,"PDBe-KB; observed residues per entry" or "PDBe-KB coverage not read"
+PDB count (3D structure list),src/components/inspector/StructureInspector.tsx,196-201,StructureInspector,3D structure (rail),experimental.rows.length,"N listed" / "Searching PDB"; "No direct PDBe entry or RCSB sequence hit"
+PDB count (hot-spot structures),src/shared/hotspotEvidence.ts,194-202,hotspotEvidence,function (hot-spot note),native solved structures with coordinates for the residue,text note with count
+PDB count (confident residues pLDDT >= 70),src/shared/hotspotEvidence.ts,449,hotspotEvidence,function (hot-spot note),s.confidentResidues / s.structureResidues,"N of M residues with pLDDT >= 70"
+domain or feature name at residue,src/shared/functionEvidence.ts,514-520,drawnDomains,function (domain track),uniprot features at residue (DomainBox name/start/end),typed; no text
+domain or feature name (summary),src/components/evidence/function/DomainArchitecture.tsx,60-63,DomainArchitecture,function (summary text),u.name / r.name + start + end,"NAME START to END" template
+domain or feature name (tooltip),src/components/evidence/function/DomainArchitecture.tsx,170-193,DomainArchitecture,function (tooltip),row.name + row.residuesText,template "NAME; residues"
+hot-spot row name,src/components/inspector/FunctionRail.tsx,89,FunctionRail,function (rail),r.name + r.headline,raw
+residue sentence (inside domain),src/shared/functionEvidence.ts,560,functionEvidence,function (sentence),inside.kind / inside.start / inside.end,"It sits in the KIND START-END"
+residue sentence (linker),src/shared/functionEvidence.ts,595,functionEvidence,function (sentence),before / after start-end,"It sits in the ... link between"
+structure site label,src/shared/functionalSites.ts,57,functionalSites,function (site source),STRUCTURE label,"Seen in a solved structure of this protein" literal
+feature list (3D rail),src/components/inspector/StructureInspector.tsx,107,StructureInspector,3D structure,result.uniprotFeatures.features,raw list
+DDG canonical (kcal or kJ),src/shared/engineStatus.ts,230-248,formatDdg and formatDdgValue,all surfaces (energetics; insights; report),canonicalDdg and unit,toFixed(2) with KJ_PER_KCAL conversion; formatDdg adds unit
+signed DDG (rule text and tally),src/shared/energeticsEvidence.ts,395-403,signedDdg and signedDdgNumber,energetics,v,formatDdgValue plus "+" if above 0; zero has no sign
+signed DDG (ruler),src/components/energetics/DdgRuler.tsx,26,DdgRuler,energetics (ruler aria),reading.ddg,signedDdg
+signed DDG (tally),src/components/energetics/FindingFacts.tsx,49,FindingFacts,energetics (tally title),r.ddg,signedDdg
+signed DDG (method pin),src/components/inspector/EnergeticsMethodInspector.tsx,55,EnergeticsMethodInspector,energetics (method rail),selected.ddg,signedDdg
+signed DDG (comparison label),src/shared/energeticsComparison.ts,66,energeticsComparison,energetics (comparison text),r.ddg,signedDdg
+signed DDG (sentences),src/shared/energeticsEvidence.ts,884-1030,energeticsEvidence,energetics (narrative),reading.ddg and rmse,signedDdg
+DDG run range (kcal hard-coded),src/shared/energeticsEvidence.ts,386-391,runRange,energetics (narrative),runs (raw kcal values),toFixed(2) with "+"; unit hard-coded "kcal/mol" and never converted
+DDG gap (kcal hard-coded),src/shared/energeticsEvidence.ts,793,energeticsEvidence,energetics (narrative),delta,"Math.abs(delta).toFixed(2) kcal/mol" hard-coded unit
+DDG clash mark (kcal hard-coded),src/shared/packingEvidence.ts,184,packingEvidence,energetics (packing chart),clashMark,toFixed(1) + " kcal/mol" hard-coded
+DDG signed helper (packing),src/shared/packingEvidence.ts,93,packingEvidence (signed),energetics (packing),v and digits,sign then toFixed(digits); zero shows "+0.00"
+DDG axis label (kcal hard-coded),src/components/energetics/PackingFigures.tsx,35,PackingFigures,energetics (packing),MarkRuler label "kcal/mol",raw unit string
+DDG axis label (unit aware),src/components/energetics/EnergeticsComparison.tsx,32,EnergeticsComparison,energetics (comparison axis),unit,"DDG (unit)"
+DDG table header and axis,src/components/energetics/ReadingsTable.tsx,164,ReadingsTable,energetics (readings table),DDG_AXIS and unit,markText (unit aware)
+DDG bind (interfaces),src/shared/interfaces/binding.ts,41,binding (valueText),interfaces (binding),v,"toFixed(2) + ' kcal/mol'" hard-coded unit; typographic minus
+DDG bind ruler (interfaces),src/components/evidence/interfaces/Rulers.tsx,67,Rulers,interfaces (ruler aria),value (signed local),raw "kcal/mol" in aria label
+DDG FoldX repair note,src/shared/foldxRepairMode.ts,68-84,foldxRepairMode,energetics (repair note),b.medianGap / rmse / typicalError,toFixed(2) and toFixed(1) with "kcal/mol" hard-coded
+DDG report table,src/shared/reportEvidenceBlocks.ts,110,reportEvidenceBlocks,report (energetics table),r.ddg,+toFixed(2) / unicode minus / 0.00 (custom; not formatDdg)
+DDG FoldX 3D note,src/shared/structure3dEvidence.ts,1196,structure3dEvidence,3D structure (FoldX note),ddG and ddGSd,signed(ddG; 2) plus toFixed(2) and "kcal/mol" hard-coded
+DDG workflow line,src/shared/workflowStatus.ts,107-111,workflowStatus,energetics (status line),foldxReading.ddg and median,valueText (not read in this pass)

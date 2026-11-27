@@ -104,7 +104,7 @@ describe('Production evidence tabs and their inspectors', () => {
     expect(tab.hasAttribute('data-marked')).toBe(marked);
     expect(tab.querySelector('.workspace-tabs__mark') !== null).toBe(marked);
     if (marked) {
-      expect(tab).toHaveAccessibleDescription('ClinVar has a classification for this variant');
+      expect(tab).toHaveAccessibleDescription('Holds a finding this view does not show. ClinVar has a classification for this variant');
       // The open tab is already showing the record, so it carries no dot.
       fireEvent.click(tab);
       expect(tab.querySelector('.workspace-tabs__mark')).toBeNull();
@@ -124,7 +124,7 @@ describe('Production evidence tabs and their inspectors', () => {
     expect(screen.queryByRole('img', { name: /How often is this allele observed/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Each step on the axis/)).not.toBeInTheDocument();
     if (example === 'Absent') expect(within(coverage).getAllByText('No variant record returned')).toHaveLength(2);
-    if (example === 'Zero') expect(within(coverage).getAllByText('0%').length).toBeGreaterThan(0);
+    if (example === 'Zero') expect(within(coverage).getAllByText('0').length).toBeGreaterThan(0);
     if (example === 'Missing') expect(within(coverage).getAllByText('Provider error').length).toBeGreaterThan(0);
     fireEvent.click(within(coverage).getByRole('button', { name: 'gnomAD exomes' }));
     const inspector = screen.getByRole('region', { name: 'Selected evidence reading' });

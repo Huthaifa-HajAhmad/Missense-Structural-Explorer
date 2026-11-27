@@ -49,6 +49,8 @@ export function reportInputFromRun(args: {
   isFolding?: boolean;
   narrativeContext?: DeepEvidenceContext;
   isLoading?: boolean;
+  expertPm1Specified?: boolean;
+  expertPm1Status?: "specified" | "not-specified" | "loading" | "unavailable";
   draft: ReportDraft;
   generatedAt?: string | null;
 }): ReportDocumentInput {
@@ -57,11 +59,13 @@ export function reportInputFromRun(args: {
     result,
     insights: insightsEvidenceFor({
       result,
+      expertPm1Specified: args.expertPm1Specified,
+      expertPm1Status: args.expertPm1Status,
       foldingEnergetics: args.foldingEnergetics,
       foldingDdG: args.foldingDdG,
       isFolding: args.isFolding,
       foldingStatus: args.foldingStatus,
-      isLoading: args.isLoading,
+      isLoading: args.isLoading || args.isFolding,
     }),
     gene: args.gene,
     variant: args.variant,
@@ -70,7 +74,7 @@ export function reportInputFromRun(args: {
     foldingDdG: args.foldingDdG ?? null,
     foldingStatus: args.foldingStatus ?? null,
     narrativeContext: args.narrativeContext,
-    isLoading: args.isLoading,
+    isLoading: args.isLoading || args.isFolding,
     narrative: reportNarrativeFrom(result),
     citations: draft.citations,
     sections: draft.sections,

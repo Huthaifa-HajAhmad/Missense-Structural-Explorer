@@ -16,6 +16,7 @@ import { StructureCallouts, type StructureCallout } from "./molstar/StructureCal
 import { CONTEXT_COLOUR } from "./molstar/drawContextLayer";
 import { derivePocketNarrative } from "../shared/residueShiftEvidence";
 import { PAIR_COLOURS, type ColourPlan, type RepresentationId, type ViewMode } from "../shared/structure3dEvidence";
+import { formatPlddt } from "../shared/plddtFormat";
 
 /** Resolves the dual-swatch colours for the superposed variant site from the evidence colour plan. */
 export function resolveSuperpositionSwatches(colour: ColourPlan): { primary: number; secondary: number } {
@@ -238,9 +239,9 @@ export default function MolstarViewer({
       text: `Variant residue ${siteName}`,
       badge: model.site.substitution ?? undefined,
       sub: isSuperposed
-        ? `Template + variant sticks · ${plddtAtSite !== null ? `pLDDT ${plddtAtSite.toFixed(0)} (AlphaFold DB)` : "superposed"}`
+        ? `Template + variant sticks · ${plddtAtSite !== null ? `pLDDT ${formatPlddt(plddtAtSite)} (AlphaFold DB)` : "superposed"}`
         : plddtAtSite !== null
-          ? `pLDDT ${plddtAtSite.toFixed(0)} at this residue (AlphaFold DB)`
+          ? `pLDDT ${formatPlddt(plddtAtSite)} at this residue (AlphaFold DB)`
           : model.site.confidence.kind !== "none"
             ? model.site.confidence.text
             : undefined,

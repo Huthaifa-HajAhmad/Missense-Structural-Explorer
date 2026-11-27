@@ -6,6 +6,10 @@ const build = (over: Partial<PackingEvidenceInput> = {}) =>
   buildPackingEvidence({ foldingEnergetics: NAE1_ENERGETICS, structuralDiff: null, metrics: null, ...over });
 
 describe("buildPackingEvidence — NAE1 p.Asp116Gly", () => {
+  it("prints a zero energy term as 0.00 with no sign, as every other ΔΔG surface does", () => {
+    const zero = build({ foldingEnergetics: { ...NAE1_ENERGETICS, vdw: 0 } }).readings.find(r => r.key === "vdw")!;
+    expect(zero.text).toBe("0.00");
+  });
   it("does not attach the ΔΔG SD to the VdW term, and uses only local marks", () => {
     const vdw = build().readings.find(r => r.key === "vdw")!;
     expect(vdw.text).toBe("+0.62");

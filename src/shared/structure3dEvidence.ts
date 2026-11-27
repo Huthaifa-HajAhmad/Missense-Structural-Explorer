@@ -33,7 +33,8 @@
  *    0.08/0.22/0.38; "±15 residue" for a ±5 window; χ1 "0.0°" for a glycine.
  */
 
-import { ENGINE_STATE_LABELS } from "./engineStatus";
+import { ENGINE_STATE_LABELS, formatDdgValue } from "./engineStatus";
+import { signedDdgNumber } from "./energeticsEvidence";
 import { otherRefusedChainsText, unmodelledSiteText } from "./refusedTemplate";
 import type { StructureProvenance } from "./contracts";
 import {
@@ -47,6 +48,7 @@ import { backboneCaveat, granthamClass, type GranthamClass } from "./residueCont
 import type { BFactorScan, ResidueAt } from "./coordinateText";
 import { alphafoldDbCoverage, type AlphaFoldDbCoverage } from "./alphafoldAvailability";
 import { SECONDARY_COLOURS, SECONDARY_LABELS, SECONDARY_ORDER, type SecondarySource } from "./structureSecondary";
+import { formatPlddt } from "./plddtFormat.ts";
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Types
@@ -465,9 +467,6 @@ function sentenceTail(text: string): string {
   return /^[A-Z][a-z]/.test(trimmed) ? trimmed.charAt(0).toLowerCase() + trimmed.slice(1) : trimmed;
 }
 
-function signed(value: number, digits: number): string {
-  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}`;
-}
 
 /** The PDB id the reader loaded, from `/api/v1/pdb/entry/<id>[?…]` or an RCSB download URL. */
 export function pdbIdFromUrl(url: string | null | undefined): string | null {
@@ -1073,7 +1072,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     confidence = {
       kind: "plddt",
       value,
-      text: `pLDDT ${value.toFixed(1)} · ${band.label.toLowerCase()}`,
+      text: `pLDDT ${formatPlddt(value)} · ${band.label.toLowerCase()}`,
       note: `From ${siteIdentity!.name}, this view's wild type; AlphaFold DB band ${band.range}.`,
     };
   } else if (siteB !== null && canAddressVariantSite && channel?.kind === "temperature-factor") {
@@ -1193,7 +1192,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         : mutantReason ?? ENGINE_STATE_LABELS["no-result"],
     sub: foldxVariant
       ? [
-          ddG !== null ? `ΔΔG ${signed(ddG, 2)}${foldx.ddGSd !== null ? ` ± ${foldx.ddGSd.toFixed(2)}` : ""} kcal/mol${foldx.runs ? ` over ${foldx.runs} runs` : ""} — a stability estimate, not pathogenicity` : null,
+          ddG !== null ? `ΔΔG ${signedDdgNumber(ddG)}${foldx.ddGSd !== null ? ` ± ${formatDdgValue(foldx.ddGSd)}` : ""} kcal/mol${foldx.runs ? ` over ${foldx.runs} runs` : ""} — a stability estimate, not pathogenicity` : null,
           foldx.repairSkipped
             ? `Template not repaired${foldx.repairSkippedReason === "alphafold-plddt" ? " (legacy AlphaFold repair policy)" : foldx.repairSkippedReason === "large-structure" ? " (large structure)" : foldx.repairSkippedReason === "repair-exceeds-budget" ? " (repair too slow on this server)" : foldx.repairSkippedReason === "cached-repair-rejected" ? " (cached repair rejected; original template used)" : ""}`
             : foldx.repairFailed

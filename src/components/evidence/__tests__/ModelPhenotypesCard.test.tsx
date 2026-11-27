@@ -10,11 +10,11 @@ describe('Unresolved zebrafish summaries', () => {
       gene: 'CNNM2', status: 'ready', mapping: 'available', provenance: [], message: null,
       species: [{ taxonId: 'NCBITaxon:7955', species: 'Zebrafish', orthologId: 'ZFIN:1', symbol: 'cnnm2a', status: 'ready', total, phenotypes: [] }],
     } }} />);
-    const summary = screen.getByText(/0 displayed/).closest('summary')!;
+    const summary = screen.getByText(/0 resolved of/).closest('summary')!;
     const disclosure = summary.parentElement!;
     expect(disclosure).not.toHaveAttribute('open');
     fireEvent.click(summary);
-    expect(screen.getByText(/0 displayed/)).toHaveTextContent(`${total} ${total === 1 ? 'summary' : 'summaries'}`);
+    expect(screen.getByText(/0 resolved of/)).toHaveTextContent(`${total} ${total === 1 ? 'summary' : 'summaries'}`);
     expect(screen.getByText(/no resolved phenotype terms/)).toHaveTextContent(`${total} ${total === 1 ? 'summary has' : 'summaries have'}`);
     expect(screen.getByText(/No term details can be displayed/)).toBeInTheDocument();
   });

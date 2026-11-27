@@ -3,8 +3,8 @@ import { otherRefusedChainsText, unmodelledSiteText } from "../refusedTemplate";
 
 describe("unmodelledSiteText", () => {
   it("counts the structures that span the residue without coordinates for it", () => {
-    expect(unmodelledSiteText({ unmodelledResidue: 358, entries: 5 })).toBe("none of the 5 solved structures spanning residue 358 has coordinates for it");
-    expect(unmodelledSiteText({ unmodelledResidue: 358, entries: 1 })).toBe("the only solved structure spanning residue 358 has no coordinates for it");
+    expect(unmodelledSiteText({ unmodelledResidue: 358, entries: 5 })).toBe("none of the 5 entries that span residue 358 has coordinates for it");
+    expect(unmodelledSiteText({ unmodelledResidue: 358, entries: 1 })).toBe("the only entry that spans residue 358 has no coordinates for it");
   });
 });
 

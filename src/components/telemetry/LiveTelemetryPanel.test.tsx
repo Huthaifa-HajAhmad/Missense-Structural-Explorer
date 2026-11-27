@@ -220,7 +220,7 @@ describe("LiveTelemetryPanel — FoldX and P2Rank are not configurable", () => {
 });
 
 describe("LiveTelemetryPanel — AlphaGenome and the key source", () => {
-  const agDown = { healthy: false, message: "Standby (API Key Required)", keySource: "none" };
+  const agDown = { healthy: false, message: "AlphaGenome is not set up. Add the access key in Settings → Connections, then re-evaluate.", keySource: "none" };
 
   beforeEach(() => {
     h.state.current = null;

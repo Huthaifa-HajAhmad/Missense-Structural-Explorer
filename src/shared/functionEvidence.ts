@@ -195,8 +195,12 @@ export interface FunctionEvidenceInput {
   /** `serviceStatus.uniprotFeatures` ("pending", "ok", "timeout", "error", "not_found"…). */
   serviceStatus?: string | null;
   numberingBasis?: "canonical" | "remapped" | "unverified" | null;
+  /** An expert panel PM1 specification covers this gene, so the panel, not the engine record, says whether PM1 applies. Display only. */
+  expertPm1Specified?: boolean;
   uniprotIsoform?: string | null;
   transcriptId?: string | null;
+  /** Ensembl transcript of the UniProt canonical isoform (the one the residue number belongs to); may differ from the MANE transcript. */
+  canonicalTranscriptId?: string | null;
   engineCriteria?: ReadonlyArray<{ code?: string }> | null;
   acmgWeighting?: string | null;
   /** gnomAD regional missense constraint at the residue; context only, PM1 does not use it. */
@@ -740,8 +744,10 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
 
   const topo = groups.find((g) => g.group === "topology");
   if (topo) {
-    const tm = topo.rows.filter((r) => r.type.toLowerCase() === "transmembrane").length;
-    const im = topo.rows.filter((r) => r.type.toLowerCase() === "intramembrane").length;
+    // UniProt can list one span in several feature rows, so a span is counted once.
+    const spans = (type: string) => new Set(topo.rows.filter((r) => r.type.toLowerCase() === type).map((r) => `${r.start}-${r.end}`)).size;
+    const tm = spans("transmembrane");
+    const im = spans("intramembrane");
     const parts = [tm ? `${tm} transmembrane segment${tm === 1 ? "" : "s"}` : "", im ? `${im} intramembrane` : ""].filter(Boolean);
     topo.summary = parts.length ? parts.join(", ") : null;
   }
@@ -828,6 +834,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     else if (pm1.status === "met" && weightingSuppresses) verdict = "withheld-weighting";
     else verdict = "not-met";
   } else verdict = pm1.status === "met" ? "met" : pm1.status === "withheld-cap" ? "withheld-cap" : "not-met";
+  // An expert panel's own PM1 rule decides the criterion: a "not met" from the generic rule is not shown as the answer.
+  const expertOwned = input.expertPm1Specified === true && verdict === "not-met";
+  if (expertOwned) verdict = "not-assessed";
   const verdictUnconfirmed = !!uniprot && !engineKnown;
   const engineMismatch =
     engineKnown && uniprot && ((recorded && pm1.status !== "met") || (!recorded && pm1.status === "met" && !weightingSuppresses))
@@ -835,7 +844,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
         ? "The engine recorded PM1, but the current rule finds no experimentally evidenced site here: this payload was classified by an earlier engine."
         : "The current rule finds a qualifying site, but the engine did not record PM1: this payload was classified by an earlier engine."
       : null;
-  const verdictLabel = {
+  const verdictLabel = expertOwned ? "PM1 not assessed — the expert panel's PM1 specification applies" : {
     met: "PM1 met",
     "not-met": "PM1 not met",
     "withheld-cap": "PM1 withheld",
@@ -889,7 +898,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const restParts: string[] = [];
   if (uniprot && contextAtResidue.length) {
     const c = contextAtResidue[0];
-    restParts.push(`It lies in the ${c.name.toLowerCase()} ${c.type.toLowerCase()} (${c.residuesText}), a broad span rather than a site.`);
+    // A feature whose type repeats its name ("DNA binding") is named once.
+    const kind = c.type.toLowerCase() === c.name.toLowerCase() ? "" : ` ${c.type.toLowerCase()}`;
+    restParts.push(`It lies in the ${c.name.toLowerCase()}${kind} (${c.residuesText}), a broad span rather than a site.`);
   }
   const ssSentence = uniprot && ssContext ? ssContext.sentence : null;
   const ssAt = restParts.length;
@@ -1066,14 +1077,20 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const notAnnotated = uniprot ? kinds.filter(([, types]) => !types.some((t) => present.has(t))).map(([label]) => label) : [];
   if (domains.length && notAnnotated[0] === "domains") notAnnotated.shift();
 
+  // The label names the transcript that encodes the UniProt isoform, never the MANE one by default.
+  const isoformTranscript = input.canonicalTranscriptId ?? input.transcriptId ?? null;
+  const bareId = (id: string) => id.split(".")[0];
+  const maneDiffers = Boolean(input.canonicalTranscriptId && input.transcriptId && bareId(input.canonicalTranscriptId) !== bareId(input.transcriptId));
+  const isoformParts = [uniprot?.sequenceLength ? `${uniprot.sequenceLength} aa` : null, isoformTranscript].filter(Boolean);
   const numberingText =
     input.numberingBasis === "unverified"
-      ? { text: "Residue numbering could not be verified against canonical ", strong: input.uniprotId ?? "UniProt", warn: true }
+      ? "Residue numbering could not be verified against UniProt "
       : input.numberingBasis === "remapped"
-        ? { text: "Residue renumbered onto canonical ", strong: input.uniprotId ?? "UniProt" }
-        : { text: "Residue numbered on canonical ", strong: input.uniprotId ?? "UniProt" };
+        ? "Residue renumbered onto UniProt "
+        : "Residue numbered on UniProt ";
   const trace: TraceStep[] = [
-    { text: `${numberingText.text}`, strong: `${numberingText.strong}${input.transcriptId ? ` (${input.transcriptId})` : ""}.`, warn: numberingText.warn },
+    { text: numberingText, strong: `${input.uniprotId ?? "UniProt"}${isoformParts.length ? ` (${isoformParts.join(", ")})` : ""}.`, warn: input.numberingBasis === "unverified" },
+    ...(maneDiffers ? [{ text: `The MANE Select transcript ${input.transcriptId} encodes a different isoform.`, strong: "" }] : []),
     uniprot
       ? {
           text: `annotations read from UniProtKB (${uniprot.reviewed === false ? "unreviewed entry" : uniprot.reviewed ? "reviewed entry" : "entry"}), ${interproMissing ? "InterPro not read" : `${matches.length} InterPro matches via UniParc`}${secondaryStructure.length ? ", secondary structure from PDB" : ""}.`,

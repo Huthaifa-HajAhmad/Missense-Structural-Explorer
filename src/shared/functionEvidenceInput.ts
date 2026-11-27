@@ -40,6 +40,7 @@ export function functionEvidenceInputFrom(result: AnalysisResult): FunctionEvide
     numberingBasis: numberingBasisOf(r, meta),
     uniprotIsoform: r?.uniprotIsoform ?? meta.uniprotIsoform ?? null,
     transcriptId: meta.transcriptId ?? r?.transcriptId ?? null,
+    canonicalTranscriptId: r?.predictorData?.canonicalEnsemblId ?? null,
     engineCriteria: r?.ruleBasedInsights?.acmgCriteria ?? r?.insights?.acmgCriteria ?? null,
     acmgWeighting: meta.acmgWeighting ?? null,
     regionalConstraint: r?.gnomadConstraint?.regionalConstraint ?? null,

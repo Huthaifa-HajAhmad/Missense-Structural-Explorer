@@ -16,8 +16,8 @@ export function SpeciesRecordFilter({ shown, total, noun, placeholder, overlap }
   return <div className="ctx-card__body sm-filter">
     <div className="cx-controls">
       <label>Search records<input type="search" value={w.query} placeholder={placeholder} onChange={e => w.setOptions({ query: e.target.value })} /></label>
-      {overlap && <label className="cx-check" title={overlap.available ? undefined : 'Choose a disease with HPO terms to compare.'}>
-        <input type="checkbox" disabled={!overlap.available} checked={overlapOn} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />Disease overlap only</label>}
+      {overlap?.available && <label className="cx-check">
+        <input type="checkbox" checked={overlapOn} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />Disease overlap only</label>}
       {filtered && <button type="button" className="viz-action" onClick={() => w.setOptions({ query: '', relevantOnly: false })}>Clear filters</button>}
     </div>
     <p className="ctx-caption" role="status">{shown} of {total} {noun} shown.</p>

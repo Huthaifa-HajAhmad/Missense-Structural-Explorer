@@ -5,6 +5,7 @@ import { describeFoldxPhase } from "../shared/foldxPhase";
 import { identifyAlphaFoldHeader, readResidueAt, scanBFactors } from "../shared/coordinateText";
 import { readProteinLength } from "../shared/alphafoldAvailability";
 import { regionsAt } from "../shared/residueRegions";
+import { burialWordLabel } from "../shared/burialEvidence";
 import {
   buildStructure3dEvidence,
   type Structure3dEvidence,
@@ -126,13 +127,7 @@ export function useStructure3dEvidence(): Structure3dEvidence {
       burial: disruption
         ? {
             rsa: typeof disruption.rsa === "number" ? disruption.rsa : null,
-            label: disruption.burialStatus
-              ? disruption.burialStatus === "core"
-                ? "Buried"
-                : disruption.burialStatus === "surface"
-                  ? "Exposed"
-                  : "Intermediate"
-              : null,
+            label: disruption.burialStatus ? burialWordLabel(disruption.burialStatus) : null,
             structure: disruptionStructure,
           }
         : null,

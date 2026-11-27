@@ -35,6 +35,8 @@ export interface DeriveAiStatusInput {
   isNarrativeLoading: boolean;
   narrativeMode?: "automatic" | "on-demand" | "off";
   narrativeOutdated?: boolean;
+  /** The summary request was sent and stopped before any answer came back (the stage ended "skipped"). */
+  requestStopped?: boolean;
 }
 
 const CONFIGURE: SummaryAction = { kind: "open-settings", tab: "connections", label: "Configure Gemini" };
@@ -68,6 +70,17 @@ export function deriveAiStatus(input: DeriveAiStatusInput): AiStatusModel {
       detail: "Sending the curated variant evidence to the language model.",
       tone: "neutral",
       action: { kind: "write", label: "Writing summary…", disabled: true },
+    };
+  }
+
+  // A request that was sent and stopped is not the same as a missing key, so it gets its own label.
+  if (input.requestStopped && !hasNarrative && !isFallback) {
+    return {
+      state: "degraded",
+      label: "AI request stopped",
+      detail: "The summary request stopped before it finished, so no model wrote one. Write it again to retry.",
+      tone: "warn",
+      action: isKeyActive ? write(false) : CONFIGURE,
     };
   }
 

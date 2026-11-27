@@ -4,6 +4,7 @@ import type { EnergyUnit } from "../../shared/engineStatus";
 import { AGREEMENT_CHIP, absenceText, listNames, signedDdg, type EnergeticsEvidence } from "../../shared/energeticsEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { otherRefusedChainsText, unmodelledSiteText } from "../../shared/refusedTemplate";
+import { formatPlddt } from "../../shared/plddtFormat";
 
 type StepState = "done" | "warn" | "idle";
 
@@ -95,7 +96,7 @@ export function EnergeticsRuleTrace({ evidence, unit }: { evidence: EnergeticsEv
               <span className="nrg-step__sub">FoldX value: ProtVar precomputed{evidence.foldxStandIn.model ? ` on ${evidence.foldxStandIn.model}` : ""}; no local value</span>
             )}
             {evidence.lowPlddt !== null && (
-              <span className="nrg-step__warn">AlphaFold pLDDT {evidence.lowPlddt.toFixed(1)} at this residue: structure-based estimates are unreliable here.</span>
+              <span className="nrg-step__warn">AlphaFold pLDDT {formatPlddt(evidence.lowPlddt)} at this residue: structure-based estimates are unreliable here.</span>
             )}
           </Step>
           <Step n={2} label="Engines returned a value" state={coverage.insufficient ? "warn" : "done"}>
@@ -123,8 +124,9 @@ export function EnergeticsRuleTrace({ evidence, unit }: { evidence: EnergeticsEv
           </Step>
           <Step n={4} label="Summary" state={agreement.direction.startsWith("split") || agreement.direction.startsWith("mostly-") ? "warn" : agreement.nCounted ? "done" : "idle"}>
             <span>
-              {AGREEMENT_CHIP[agreement.direction].label}
-              {agreement.nCounted > 1 ? ` · median ${signedDdg(agreement.median, unit)}` : ""}
+              {evidence.withheldReason !== null ? "No stability conclusion" : AGREEMENT_CHIP[agreement.direction].label}
+              {/* A median from a run still in progress would move when the rest arrive, so it waits. */}
+              {agreement.nCounted > 1 && !evidence.provisional ? ` · median ${signedDdg(agreement.median, unit)}` : ""}
             </span>
             {agreement.nCounted > 0 && coverage.insufficient && (
               <span className="nrg-step__warn">Fewer than three engines returned a value; read this as individual estimates, not agreement.</span>
