@@ -500,7 +500,12 @@ export function buildConstraintMetrics(analysisResult: AnalysisResult | null | u
  */
 export function releaseTag(metric: Pick<VhMetric, "release" | "marker" | "cutPoints">, groupSource: string): string | null {
   if (metric.marker === null || metric.cutPoints === null || metric.release === groupSource) return null;
-  return metric.release.replace(/^gnomAD \((.*)\)$/, "$1").replace(/^gnomAD /, "");
+  // Keep the strip pill compact ("v4.1.1") so mid-width viewports never overflow; the full
+  // "gnomAD (regional release v4.1.1)" explanation stays on `metric.release`, tooltips, and the card.
+  return metric.release
+    .replace(/^gnomAD \((?:regional )?(.*)\)$/, "$1")
+    .replace(/^release (v)/, "$1")
+    .replace(/^gnomAD /, "");
 }
 
 /** Where the constraint numbers came from, as the inspector's Source section lists them. */

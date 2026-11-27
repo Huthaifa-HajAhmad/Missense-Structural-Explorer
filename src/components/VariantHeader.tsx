@@ -162,7 +162,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAlle
                     <span className="vcs-chip-verdict" data-tone={m.tone} data-unmeasured={m.marker === null || undefined}>
                       {m.verdict}
                     </span>
-                    {tag && <span className="vcs-chip-release">{tag}</span>}
+                    {tag && <span className="vcs-chip-release" title={m.release}>{tag}</span>}
                     {isInspected && <span className="vh-sr-only">, shown in the inspector</span>}
                   </button>
                   {open && (

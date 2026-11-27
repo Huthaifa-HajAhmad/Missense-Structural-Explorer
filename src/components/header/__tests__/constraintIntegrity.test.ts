@@ -62,12 +62,15 @@ describe("constraint source, precision and availability", () => {
     // Regional O/E is measured against its own release; here it has no value (unverified locus).
     expect(releaseTag(rmc, group)).toBeNull();
     const measured = buildConstraintMetrics(result({ ...constraint, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } }))[2];
-    expect(releaseTag(measured, group)).toBe("regional release v4.1.1");
+    expect(measured.release).toBe("gnomAD (regional release v4.1.1)");
+    expect(releaseTag(measured, group)).toBe("v4.1.1");
   });
-  it("words an unreported regional release without the wrapper parentheses", () => {
+  it("words an unreported regional release concisely in the chip tag while keeping full card provenance", () => {
     const gc = { ...constraint, regionalRelease: undefined, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } };
     const res = result(gc);
-    expect(releaseTag(buildConstraintMetrics(res)[2], constraintSourceLabel(res))).toBe("regional release unreported");
+    const rmc = buildConstraintMetrics(res)[2];
+    expect(rmc.release).toBe("gnomAD (regional release unreported)");
+    expect(releaseTag(rmc, constraintSourceLabel(res))).toBe("release unreported");
   });
   it("shows no tag when interpretation is withheld, where it would contradict the verdict", () => {
     const older = { ...constraint, provenance: { ...constraint.provenance, release: "2.1.1" }, regionalStatus: undefined, hasRegionalData: true, regionalConstraint: { isConstrained: true, oeRatio: 0.5, pValue: 0.001, regionText: "A1 to B2" } };
