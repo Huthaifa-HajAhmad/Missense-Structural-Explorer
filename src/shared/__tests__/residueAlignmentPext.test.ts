@@ -63,17 +63,6 @@ describe('pext placement', () => {
   });
 });
 
-import { validityPosition, VALIDITY_SCALE } from '../diseaseFrame';
-describe('GenCC scale position', () => {
-  it('places listed classifications, tolerates the Evidence suffix and refuses to force the rest onto a rung', () => {
-    expect(validityPosition('Definitive')).toBe(VALIDITY_SCALE.length - 1);
-    expect(validityPosition('No Known Disease Relationship')).toBe(0); // GenCC's own lowest category
-    expect(validityPosition('Refuted Evidence')).toBe(1);
-    expect(validityPosition('Disputed Evidence')).toBe(2);
-    expect(validityPosition('Animal Model Only')).toBeNull();
-  });
-});
-
 import { groupHpoTerms, systemForCategory } from '../hpoAnnotation';
 describe('review-driven regressions', () => {
   it('maps every HPO category spelling the service returns, ignoring case', () => {

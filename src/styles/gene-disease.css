@@ -79,11 +79,6 @@
 .gd-rail { display: flex; flex-direction: column; gap: 18px; }
 .gd-rail__section { display: flex; flex-direction: column; gap: 10px; }
 .gd-rail__section + .gd-rail__section { border-top: 1px solid var(--cs-border-subtle); padding-top: 18px; }
-.gd-cuts { list-style: none; padding: 0; display: flex; flex-direction: column; }
-.gd-cuts li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
-.gd-cuts li + li { border-top: 1px solid var(--cs-border-subtle); }
-.gd-cuts li[data-active] { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.gd-here { font-weight: 400; color: var(--cs-text-muted); }
 .gd-rail .ctx-definition { padding: 0; }
 .gd-rail .ctx-definition > div { grid-template-columns: 84px minmax(0, 1fr); padding: 8px 0; }
 .gd-rail .ctx-rail__section { display: flex; flex-direction: column; gap: 10px; }
@@ -192,3 +187,34 @@
 .gd-screen .cx-assertion > span[aria-hidden] { font-size: 18px; line-height: 1; }
 .gd-screen[data-comparison] .cx-records { margin: 0; }
 
+/* Reference & methods: a staircase of graded steps (taller = more evidence), other categories as chips,
+   and one readout for the chosen item. One accent; weight grows with the step, never good/bad colour. */
+.gd-ref { display: flex; flex-direction: column; gap: 10px; min-inline-size: 0; }
+.gd-ref__axis { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.gd-ref__steps { display: grid; grid-template-columns: repeat(var(--gd-steps), minmax(0, 1fr)); gap: 4px; align-items: end; }
+.gd-ref__step { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-inline-size: 0; padding: 4px 2px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.gd-ref__badge { block-size: 16px; font-family: var(--cs-font-mono); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); line-height: 16px; text-align: center; color: var(--cs-text-primary); }
+.gd-ref__bar { block-size: calc(8px + 36px * var(--gd-step)); border-radius: 4px 4px 0 0; background: color-mix(in oklch, var(--cs-accent-clay) calc(18% + 50% * var(--gd-step)), var(--cs-surface)); }
+.gd-ref__bar[data-hollow] { background: var(--cs-surface); box-shadow: inset 0 0 0 1px var(--cs-border); }
+/* Room for two label lines on every step, so all bars stand on one baseline. */
+.gd-ref__label { min-block-size: 2.5em; font-size: var(--cs-font-size-caption); line-height: 1.25; text-align: center; color: var(--cs-text-secondary); overflow-wrap: anywhere; }
+.gd-ref__step[data-marked] .gd-ref__bar { box-shadow: inset 0 0 0 2px var(--cs-text-primary); }
+.gd-ref__step[data-marked] .gd-ref__label { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.gd-ref__step[aria-pressed="true"] { background: var(--cs-surface-2); }
+.gd-ref__group { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: start; gap: 8px; }
+.gd-ref__group-label { padding-block-start: 5px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.gd-ref__chips { display: flex; flex-wrap: wrap; gap: 6px; min-inline-size: 0; }
+.gd-ref__chip { display: inline-flex; align-items: center; gap: 6px; min-block-size: 26px; padding: 2px 10px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-badge, 6px); background: var(--cs-surface); color: var(--cs-text-secondary); font: inherit; font-size: var(--cs-font-size-caption); cursor: pointer; }
+.gd-ref__chip[data-caution] { color: var(--cs-text-warning-on-soft); border-color: color-mix(in oklch, var(--cs-text-warning) 40%, var(--cs-border)); }
+.gd-ref__chip[data-marked] { border-color: var(--cs-text-primary); color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.gd-ref__chip[aria-pressed="true"] { background: var(--cs-surface-2); }
+.gd-ref__chip-badge { font-family: var(--cs-font-mono); }
+.gd-ref__readout { display: flex; flex-direction: column; gap: 2px; min-block-size: 3.6em; padding-block-start: 8px; border-block-start: 1px solid var(--cs-border-subtle); }
+.gd-ref__readout strong { color: var(--cs-text-primary); }
+.gd-ref__note { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.gd-ref__notes { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.gd-ref__notes li + li { padding-block-start: 6px; border-block-start: 1px solid var(--cs-border-subtle); }
+.gd-rail .gd-reference h3 + .gd-ref, .gd-rail .gd-reference h3 + p { margin-block-start: -4px; }
+.gd-rail :is(.gd-ref__step, .gd-ref__chip):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .gd-ref__step:hover, .gd-ref__chip:hover { background: var(--cs-surface-2); } }
+@media print { .gd-ref__bar { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

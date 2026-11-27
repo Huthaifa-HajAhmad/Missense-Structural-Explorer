@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGeneDiseaseModel, compareMechanism, isAdverseLevel } from '../geneDiseaseEvidence';
-import { buildDosageEvidence, parseDosageScore, DOSAGE_CODE_LABELS, type DosageResponse } from '../dosageSensitivity';
+import { buildDosageEvidence, dosageReference, parseDosageScore, DOSAGE_CODE_LABELS, DOSAGE_SCOPE_NOTE, type DosageResponse } from '../dosageSensitivity';
 import { snapshotAge } from '../snapshotAge';
 import type { GeneDiseaseResponse } from '../diseaseFrame';
 import type { MechanismRecord } from '../mechanismContext';
@@ -47,6 +47,13 @@ describe('verdict: agreement is reported, never a winner', () => {
     expect(m.verdict).toMatchObject({ kind: 'adverse', tone: 'warning' });
     expect(m.headline).toBe('1 of 2');
     expect(m.assertions.filter(a => a.adverse)).toHaveLength(1);   // the supportive row stays visible
+  });
+  it('does not call a relationship contested when the only caution is that none was ever claimed', () => {
+    // GenCC: "No disease claim in any organism has ever been made", so nothing is being disputed.
+    const none = model(disease([['A', 'No Known Disease Relationship']]));
+    expect(none.sentence).toMatch(/no known gene relationship/);
+    expect(none.sentence).not.toMatch(/contested/);
+    expect(model(disease([['A', 'Disputed Evidence'], ['B', 'No Known Disease Relationship']])).sentence).toMatch(/is contested/);
   });
   it('is a statement, not an empty selector, when GenCC is not installed', () => {
     const m = buildGeneDiseaseModel({ gene: 'SOD1', disease: { status: 'ready', data: { gene: 'SOD1', status: 'not-installed', frames: [], provenance: null, message: null } }, selectedKey: null, dosage: undefined, now: NOW });
@@ -173,5 +180,25 @@ describe('mechanism availability explanation', () => {
     d.mechanismContext!.status = 'not-installed';
     expect(model(d).mechanismSummary).toContain('not installed');
     expect(model(d).mechanismSummary).not.toContain('No matching');
+  });
+});
+
+describe('ClinGen dosage reference', () => {
+  it('draws 0 to 3 as one evidence scale and keeps 30 and 40 as special categories', () => {
+    const ref = dosageReference([]);
+    expect(ref.filter(c => c.kind === 'evidence').map(c => c.code)).toEqual([0, 1, 2, 3]);
+    expect(ref.filter(c => c.kind === 'special').map(c => c.code)).toEqual([30, 40]);
+    expect(ref.find(c => c.code === 0)?.definition).toMatch(/not .*tolerated/);
+  });
+  it('marks where this gene’s haploinsufficiency and triplosensitivity calls sit', () => {
+    const readings = buildDosageEvidence({ status: 'ready', data: dosage(3, 40) }, null).readings;
+    const ref = dosageReference(readings);
+    expect(ref.find(c => c.code === 3)?.marks).toEqual(['Haploinsufficiency']);
+    expect(ref.find(c => c.code === 40)?.marks).toEqual(['Triplosensitivity']);
+    expect(ref.find(c => c.code === 0)?.marks).toEqual([]);
+  });
+  it('words the disease scope for readers, not as a machine value', () => {
+    expect(DOSAGE_SCOPE_NOTE.unscoped).toMatch(/no MONDO ID/);
+    expect(Object.values(DOSAGE_SCOPE_NOTE).join(' ')).not.toMatch(/same-disease|other-disease/);
   });
 });

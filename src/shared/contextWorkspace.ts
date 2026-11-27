@@ -11,6 +11,7 @@ import { speciesLabel, speciesOrder, type ModelOrganismResponse } from './modelO
 import { alignedProteinName, buildAlignmentEvidence, mismatchReason, RESIDUE_STATE_LABEL, type AlignmentResponse, type ResidueMapping } from './residueAlignment';
 import type { ModelPhenotypesResponse } from './modelPhenotypes';
 import type { ContextProvenance } from './diseaseFrame';
+import { DOSAGE_SCOPE_NOTE } from './dosageSensitivity';
 import type { ReviewSystemId } from './phenotypeFrame';
 
 export type ContextTab = 'gene-disease' | 'expression-models' | 'species-models';
@@ -51,7 +52,7 @@ export function geneDiseaseReadings(model: GeneDiseaseModel): ContextReading[] {
     })),
     ...(model.dosage.state === 'ready' ? model.dosage.readings.map(d => row({ key: `dosage:${d.key}`, name: d.name, value: null, valueText: d.call,
       description: d.asks, group: 'dosage', source: 'ClinGen dosage', reportUrl: model.dosage.reportUrl,
-      facts: [{ label: 'Source', value: 'ClinGen dosage' }, { label: 'Score', value: reported(d.code) }, { label: 'Disease', value: d.disease ?? 'Not reported' }, { label: 'Selected disease scope', value: d.scope }, { label: 'Evaluated', value: reported(model.dosage.evaluatedAt) }],
+      facts: [{ label: 'Source', value: 'ClinGen dosage' }, { label: 'Score', value: reported(d.code) }, { label: 'Disease', value: d.disease ?? 'Not reported' }, { label: 'Selected disease scope', value: DOSAGE_SCOPE_NOTE[d.scope] }, { label: 'Evaluated', value: reported(model.dosage.evaluatedAt) }],
       notes: ['Whole-gene copy-number evidence does not establish the mechanism of a missense variant. Codes 30 and 40 are special categories, not higher scores.', d.history ?? 'No curation history reported.'],
     })) : []),
   ];
