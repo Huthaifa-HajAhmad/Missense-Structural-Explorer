@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import saved from "../../../doc/release-audit/raw/TP53_R175H/api/022_v1-structure-multimer.json";
+import saved from "./fixtures/tp53StoredMultimer.json";
 import { SOD1_INTERFACES } from "./fixtures/sod1Interfaces";
 import type { MultimerData } from "../contracts";
 import { isStaleAssembly, buildInterfacesEvidence } from "../interfacesEvidence";
